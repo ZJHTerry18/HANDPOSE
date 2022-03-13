@@ -1,0 +1,21 @@
+train data:
+<hand id>
+<touch id>
+<thumb CMC phi theta>
+<thumb PIP theta>
+<thumb DIP theta>
+<thumb tip pitch yaw roll>
+<thumb tip xyz>
+<fore..>
+<middle..>
+<ring..>
+<little..>
+
+test data:
+<hand id>
+<touch id>
+<thumb tip pitch yaw roll>
+<fore tip..>
+<middle tip..>
+<ring tip..>
+<little tip..>
