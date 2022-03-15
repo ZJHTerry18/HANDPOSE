@@ -16,10 +16,8 @@ HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1"
 	"1 1 0 1 1", "1 1 1 1 0", 
 	"1 1 1 1 1"]
 
-def plot_kp(ax,xp,yp,zp, touch_ind = None):
+def plot_kp(ax,xp,yp,zp, touch_ind = None, finger_color = 'violet', palm_color = 'blue', linestyle = '-'):
 	finger_dict = {0:7, 1:10, 2:13, 3:16, 4:19}
-	palm_color = 'blue'
-	finger_color = 'violet'
 	untouch_id = list(range(20))
 	for i in touch_ind:
 		id = finger_dict[i]
@@ -29,43 +27,44 @@ def plot_kp(ax,xp,yp,zp, touch_ind = None):
 	ax.plot(np.hstack((xp[0],xp[1])),
 			np.hstack((yp[0],yp[1])),
 			np.hstack((zp[0],zp[1])),
-			ls='-', color=finger_color)
+			ls=linestyle, color=finger_color)
 	ax.plot(np.hstack((xp[0],xp[2])),
 			np.hstack((yp[0],yp[2])),
 			np.hstack((zp[0],zp[2])),
-			ls='-', color=palm_color)
+			ls=linestyle, color=palm_color)
 	ax.plot(np.hstack((xp[0],xp[3])),
 			np.hstack((yp[0],yp[3])),
 			np.hstack((zp[0],zp[3])),
-			ls='-', color=palm_color)
+			ls=linestyle, color=palm_color)
 	ax.plot(np.hstack((xp[0],xp[4])),
 			np.hstack((yp[0],yp[4])),
 			np.hstack((zp[0],zp[4])),
-			ls='-', color=palm_color)
+			ls=linestyle, color=palm_color)
 	ax.plot(np.hstack((xp[0],xp[5])),
 			np.hstack((yp[0],yp[5])),
 			np.hstack((zp[0],zp[5])),
-			ls='-', color=palm_color)
+			ls=linestyle, color=palm_color)
 	ax.plot(np.hstack((xp[1],xp[6:8])),
 			np.hstack((yp[1],yp[6:8])),
 			np.hstack((zp[1],zp[6:8])),
-			ls='-', color=finger_color)
+			ls=linestyle, color=finger_color)
 	ax.plot(np.hstack((xp[2],xp[8:11])),
 			np.hstack((yp[2],yp[8:11])),
 			np.hstack((zp[2],zp[8:11])),
-			ls='-', color=finger_color)
+			ls=linestyle, color=finger_color)
 	ax.plot(np.hstack((xp[3],xp[11:14])),
 			np.hstack((yp[3],yp[11:14])),
 			np.hstack((zp[3],zp[11:14])),
-			ls='-', color=finger_color)
+			ls=linestyle, color=finger_color)
 	ax.plot(np.hstack((xp[4],xp[14:17])),
 			np.hstack((yp[4],yp[14:17])),
 			np.hstack((zp[4],zp[14:17])),
-			ls='-', color=finger_color)
+			ls=linestyle, color=finger_color)
 	ax.plot(np.hstack((xp[5],xp[17:20])),
 			np.hstack((yp[5],yp[17:20])),
 			np.hstack((zp[5],zp[17:20])),
-			ls='-', color=finger_color)
+			ls=linestyle, color=finger_color)
+
 
 def in_angle(a, b, p):
 	cosangle = np.dot(a,b) / (np.linalg.norm(a) * np.linalg.norm(b))
@@ -296,14 +295,14 @@ def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_r
 	touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
 	
 	fig = plt.figure(figsize=plt.figaspect(0.5))
-	axtest1 = fig.add_subplot(2,2,1, projection='3d')
-	axtest2 = fig.add_subplot(2,2,2, projection='3d')
-	axres1 = fig.add_subplot(2,2,3, projection='3d')
-	axres2 = fig.add_subplot(2,2,4, projection='3d')
+	axtest1 = fig.add_subplot(1,2,1, projection='3d')
+	axtest2 = fig.add_subplot(1,2,2, projection='3d')
+	# axres1 = fig.add_subplot(2,2,3, projection='3d')
+	# axres2 = fig.add_subplot(2,2,4, projection='3d')
 	axtest1.set_title('test local')
 	axtest2.set_title('test global')
-	axres1.set_title('pred local')
-	axres2.set_title('pred global')
+	# axres1.set_title('pred local')
+	# axres2.set_title('pred global')
 	axtest1.set_xlim3d([-10,10])
 	axtest1.set_ylim3d([0,20])
 	axtest1.set_zlim3d([-10,10])
@@ -311,30 +310,31 @@ def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_r
 	axtest2.set_ylim3d([10,30])
 	axtest2.set_zlim3d([-10,10])
 	axtest2.set_xlim3d([-10,10])
-	axres1.set_xlim3d([-10,10])
-	axres1.set_ylim3d([0,20])
-	axres1.set_zlim3d([-10,10])
-	axres2.set_xlim3d([-10,10])
-	axres2.set_ylim3d([10,30])
-	axres2.set_zlim3d([-10,10])
-	axres2.set_xlim3d([-10,10])
+	# axres1.set_xlim3d([-10,10])
+	# axres1.set_ylim3d([0,20])
+	# axres1.set_zlim3d([-10,10])
+	# axres2.set_xlim3d([-10,10])
+	# axres2.set_ylim3d([10,30])
+	# axres2.set_zlim3d([-10,10])
+	# axres2.set_xlim3d([-10,10])
 	axtest1.set_xticklabels([])
 	axtest1.set_yticklabels([])
 	axtest1.set_zticklabels([])
-	axres1.set_xticklabels([])
-	axres1.set_yticklabels([])
-	axres1.set_zticklabels([])
+	# axres1.set_xticklabels([])
+	# axres1.set_yticklabels([])
+	# axres1.set_zticklabels([])
 	axtest2.set_xticklabels([])
 	axtest2.set_yticklabels([])
 	axtest2.set_zticklabels([])
-	axres2.set_xticklabels([])
-	axres2.set_yticklabels([])
-	axres2.set_zticklabels([])
+	# axres2.set_xticklabels([])
+	# axres2.set_yticklabels([])
+	# axres2.set_zticklabels([])
 	# ax.view_init(elev=15, azim=-30)
 	axtest1.view_init(elev=45, azim=45)
 	axtest2.view_init(elev=-45, azim=-90)
-	axres1.view_init(elev=45, azim=45)
-	axres2.view_init(elev=-45, azim=-90)
+	# axres1.view_init(elev=45, azim=45)
+	# axres2.view_init(elev=-45, azim=-90)
+	
 	# axtest1.scatter3D(xp_local_test, yp_local_test, zp_local_test, cmap="Greens")
 	# axtest2.scatter3D(xp_global_test, yp_global_test, zp_global_test, cmap="Greens")
 	# axres1.scatter3D(xp_local_res, yp_local_res, zp_local_res, cmap="Greens")
@@ -343,8 +343,8 @@ def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_r
 	# plot connections
 	plot_kp(axtest1,xp_local_test, yp_local_test, zp_local_test, touch_ind)
 	plot_kp(axtest2,xp_global_test, yp_global_test, zp_global_test, touch_ind)
-	plot_kp(axres1,xp_local_res, yp_local_res, zp_local_res, touch_ind)
-	plot_kp(axres2,xp_global_res, yp_global_res, zp_global_res, touch_ind)
+	plot_kp(axtest1,xp_local_res, yp_local_res, zp_local_res, touch_ind, linestyle='--')
+	plot_kp(axtest2,xp_global_res, yp_global_res, zp_global_res, touch_ind, linestyle='--')
 	plt.axis('on')
 	if show: 
 		plt.show()
