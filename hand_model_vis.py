@@ -212,7 +212,8 @@ def vis(samples, vis_label, save_dir):
         plt.savefig(osp.join(save_dir,save_fig))
         plt.close()
 
-    save_video(save_dir, 'vis_single.mp4')
+    save_file = save_dir[:-1] + '.mp4'
+    save_video(save_dir, save_file)
 
 def save_video(img_root, output_path):
     # img_root = 'demo_test2\\'

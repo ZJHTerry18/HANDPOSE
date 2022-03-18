@@ -90,6 +90,7 @@ class NAIVE_VAE(nn.Module):
         if seed_fix:
             seed = torch.empty(1, self.latent_dims).uniform_(0, 1).to(self.device)
             label = torch.bernoulli(seed)
+            label[:,-1] = 0 # for noncurl
             label = label.repeat(number,1)
         else:
             seed = torch.empty(number, self.latent_dims).uniform_(0, 1).to(self.device)
@@ -135,9 +136,6 @@ class NAIVE_VAE(nn.Module):
         layers.append(nn.Sequential(nn.Linear(self.mlp_d[-2], self.mlp_d[-1]), nn.Tanh()))
 
         return nn.Sequential(*layers)
-
-
-
 
 
 if __name__ == '__main__':

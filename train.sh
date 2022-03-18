@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=5,6 python train.py --num_process_per_node 2 --save output310_no_backbone_cond_na --port 10002
+CUDA_VISIBLE_DEVICES=5,6 python train_2.py --num_process_per_node 2 --save output317_pvae --port 10002 --latent_dims 5 --model PVAE

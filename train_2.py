@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import os
 import argparse # prepare for the arg config
@@ -14,6 +15,8 @@ from data.prior_dataset import ivg_HD_naive
 import utils
 from thirdparty.adamax import Adamax
 from torch.cuda.amp import autocast, GradScaler
+
+from vae_para import PVAE
 
 from hand_model_vis import vis
 import warnings
@@ -81,7 +84,7 @@ def main(args):
     # set the model paras
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # model = NAIVE_VAE(1,20,5,device) # TODO: using the fixed number, latent related with the cond vector
-    model = eval(args.model)(1,20,args.latent_dims,device)
+    model = eval(args.model)(1,20,args.latent_dims, 2, device)
     model = model.cuda()
     logging.info('param size = %fM ', utils.count_parameters_in_M(model)) # counting the size
 
@@ -115,13 +118,13 @@ def main(args):
     # generate the beta paras via epochs
     beta_collects = frange_cycle_linear(args.epochs, stop=0.5, n_cycle=1, ratio=0.7) # set the cyclic rounds
     if args.sample:
-        number_s = 15
-        get_samples, get_labels = sample_vis(model,checkpoint_file,number_s,False)
+        number_s = 20
+        get_samples, get_labels = sample_vis(model,checkpoint_file,True,number_s,False)
         get_samples = get_samples.reshape(number_s, 5,4)
         get_samples = get_samples.cpu().numpy()
         get_labels = get_labels.cpu().numpy()
         # import pdb;pdb.set_trace()
-        vis(get_samples, get_labels,'vis_non_curl/')
+        vis(get_samples, get_labels,'vis_curl/')
 
     else:
         for epoch in range(init_epoch, args.epochs): # start training
@@ -157,7 +160,7 @@ def main(args):
             writer.close()
 
 
-def sample_vis(model, checkpoint_file, num=10, fix_cond=False):
+def sample_vis(model, checkpoint_file, is_curl, num=10, fix_cond=False):
     checkpoint = torch.load(checkpoint_file, map_location='cpu')
     model.load_state_dict(checkpoint['state_dict'])
     # for paras in model.decoder.parameters():
@@ -165,7 +168,7 @@ def sample_vis(model, checkpoint_file, num=10, fix_cond=False):
     model = model.cuda()
     model.eval()
     with torch.no_grad():
-        generate_sampling, label = model.sample_and_decode(num,fix_cond)
+        generate_sampling, label = model.sample_and_decode(is_curl,num,fix_cond)
     # generate_sampling = torch.permute(generate_sampling,(0,2,1))
     generate_angle = generate_sampling * np.pi
     # generate_angle = torch.atan2(generate_sampling[...,0], generate_sampling[...,1])
@@ -176,6 +179,7 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
     # nelbo = utils.AvgrageMeter()
     KL_loss = utils.AvgrageMeter()
     reconstruction_loss = utils.AvgrageMeter()
+    curl_loss_c = utils.AvgrageMeter()
     Total_loss = utils.AvgrageMeter()
     model.train()
     
@@ -186,10 +190,14 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
         cond = cond.cuda()
         curl = curl.cuda()
         # TODO: add one dimension to the cond
-        cond = torch.cat([cond, curl], dim=-1)
+        # cond = torch.cat([cond, curl], dim=-1)
         curl_weight = curl * 6.7 + (curl == 0)
-        # change bit length
-        # x = utils.pre_process(x, args.num_x_bits)
+
+        # curl to onehot
+        curl_target = torch.zeros(x.shape[0], 2).cuda() # 
+        src = torch.ones_like(curl_target).cuda()
+        curl_target.scatter_(1, curl.to(torch.int64), src) # dim index source
+        curl_loss_weight = torch.Tensor([1,6.7]).cuda()
         # warm-up lr
         if global_step < warmup_iters:
             lr = args.learning_rate * float(global_step) / warmup_iters
@@ -210,9 +218,10 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # norm [-pi, pi] to [-1,1]
             input_angle = org_angle / np.pi
             # recovered_data, latent_mu, latent_sigma = model(x_input)
-            recovered_data, latent_mu, latent_logv = model(input_angle)
+            recovered_data, latent_mu, latent_logv, curl_out = model(input_angle)
             # calulate the KL and re loss
             loss = 0
+            curl_loss = F.nll_loss(curl_out, curl.squeeze().to(torch.long), curl_loss_weight) + 1 # add 1 to positive
             mu_2 = torch.pow((latent_mu - cond),2)
             sigma_2 = torch.exp(latent_logv)
             # sigma_2 = torch.clip(sigma_2, min=1e-5) # keep stable
@@ -225,11 +234,12 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # add loss weight for the curl samples
             angle_loss = angle_loss * curl_weight
             angle_loss = torch.mean(angle_loss)
-            if args.model == 'BVAE':
-                loss += model.batchnorm_loss()
-            loss = loss + beta * kl_loss + angle_loss # add a batchnorm loss
+            if args.model == 'BVAE' or args.model == 'PVAE':
+                loss += model.batchnorm_loss() * 0.1
+            loss = loss + beta * kl_loss + angle_loss + curl_loss # add a batchnorm loss
             KL_loss.update(kl_loss.item())
             reconstruction_loss.update(angle_loss.item())
+            curl_loss_c.update(curl_loss.item())
             Total_loss.update(loss.item())
 
         grad_scalar.scale(loss).backward()
@@ -247,11 +257,13 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             writer.add_scalar('train/loss', loss, global_step)
             writer.add_scalar('train/re_loss', angle_loss, global_step)
             writer.add_scalar('train/kl_loss', kl_loss, global_step)
+            writer.add_scalar('train/curl_loss', curl_loss, global_step)
             writer.add_scalar('train/beta', beta, global_step)
             logging.info('train %d: the total loss is %f', global_step, Total_loss.avg)
             logging.info('The beta is %f', beta)
             logging.info('The kl loss is %f', KL_loss.avg)
             logging.info('The re loss is %f', reconstruction_loss.avg)
+            logging.info('The curl loss is %f', curl_loss_c.avg)
         
         global_step += 1
 
@@ -263,20 +275,29 @@ def test(valid_queue, model, args, logging):
         dist.barrier()
     vali_rel = utils.AvgrageMeter()
     vali_total = utils.AvgrageMeter()
+    vali_curl = utils.AvgrageMeter()
     model.eval()
     for step, data in enumerate(valid_queue):
         cond, curl, x, ang = data
         cond = cond.cuda()
         curl = curl.cuda()
-        cond = torch.cat([cond, curl],dim=-1)
+        # cond = torch.cat([cond, curl],dim=-1)
         curl_weight = curl * 6.7 + (curl == 0)
+
+        # curl to onehot
+        # curl_target = torch.zeros(x.shape[0], 2).cuda() # 
+        # src = torch.ones_like(curl_target).cuda()
+        # curl_target.scatter_(1, curl.to(torch.int64), src) # dim index source
+        curl_loss_weight = torch.Tensor([1,6.7]).cuda()
+
         x = x.cuda()
         with torch.no_grad():
             # x_input = torch.permute(x, (0,2,1)) # B,C,L
             org_angle = torch.atan2(x[...,0], x[...,1])
             org_angle = org_angle.reshape(-1,1,20) # Add the backbone
             input_angle = org_angle / np.pi
-            recovered_data, latent_mu, latent_logv= model(input_angle)
+            recovered_data, latent_mu, latent_logv, curl_output= model(input_angle)
+            curl_loss = F.nll_loss(curl_output, curl.squeeze().to(torch.long), curl_loss_weight) + 1
             # calulate the KL and re loss
             mu_2 = torch.pow(latent_mu - cond,2)     
             sigma_2 = torch.exp(latent_logv)       
@@ -286,9 +307,10 @@ def test(valid_queue, model, args, logging):
             recovered_data = recovered_data * np.pi
             angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle))
             angle_loss = torch.mean(angle_loss) # do not times the curl weight
-            loss = kl_loss + angle_loss
+            loss = kl_loss + angle_loss + curl_loss
             vali_rel.update(angle_loss.item())
             vali_total.update(loss.item())
+            vali_curl.update(curl_loss.item())
             
 
     # utils.average_tensor(nelbo_avg.avg, args.distributed)
@@ -296,7 +318,8 @@ def test(valid_queue, model, args, logging):
     if args.distributed:
         # block to sync
         dist.barrier()
-    logging.info('val, step: %d, Total: %f, Reconstraction %f', step, vali_total.avg, vali_rel.avg)
+    # logging.info('val, Total: %f, Reconstraction %f, cross_entro %f', vali_total.avg, vali_rel.avg, vali_curl.avg)
+    logging.info('val, Total: %f, Reconstraction %f, cross_entro %f', vali_total.avg, vali_rel.avg, vali_curl.avg)
     return vali_rel.avg
 
 def print_para(model):
@@ -350,7 +373,7 @@ if __name__ == '__main__':
                         help='This flag enables sampling from an existing bestmodel.')
 
     parser.add_argument('--model', type=str, default='NAIVE_VAE',
-                        help='choices from NAIVE_VAE and BVAE')
+                        help='choices from NAIVE_VAE and BVAE and PVAE')
 
     # DDP.
     parser.add_argument('--num_proc_node', type=int, default=1,
