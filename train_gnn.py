@@ -119,18 +119,15 @@ def main(args):
 
     # generate the beta paras via epochs
     VPP = args.batch_size / len(train_dataset)
-    beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=1, ratio=0.7) # set the cyclic rounds
+    beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=5, ratio=0.7) # set the cyclic rounds
     if args.sample:
-        number_s = 15
-        seed = torch.empty(number_s, 5).uniform_(0, 1).to(device)
-        label = torch.bernoulli(seed)
-        get_samples = sample_vis(model,checkpoint_file,label,number_s,False) # best or checkpoint
-        get_samples = get_samples.reshape(number_s, 5,4)
+        number_s = 50
+        var_ = 10
+        get_samples, contact_info = sample_vis(model,best_file,number_s, var_) # best or checkpoint
         get_samples = get_samples.cpu().numpy()
-        get_labels = label.cpu().numpy()
-        # import pdb;pdb.set_trace()
-        vis(get_samples, get_labels,'vis_curl/')
-
+        contact_info = contact_info.cpu().numpy()
+        vis(get_samples, contact_info,'vis_curl/')
+        exit()
     else:
         for epoch in range(init_epoch, args.epochs): # start training
             # update lrs.
@@ -165,7 +162,7 @@ def main(args):
             writer.close()
 
 
-def sample_vis(model, checkpoint_file, cond, num=10, fix_cond=False):
+def sample_vis(model, checkpoint_file, num=10, var_ = 1):
     checkpoint = torch.load(checkpoint_file, map_location='cpu')
     model.load_state_dict(checkpoint['state_dict'])
     # for paras in model.decoder.parameters():
@@ -173,11 +170,11 @@ def sample_vis(model, checkpoint_file, cond, num=10, fix_cond=False):
     model = model.cuda()
     model.eval()
     with torch.no_grad():
-        generate_sampling = model.sample_and_decode(cond)
+        generate_sampling, contact_info = model.sample_generation(num, var_)
     # generate_sampling = torch.permute(generate_sampling,(0,2,1))
     generate_angle = generate_sampling * np.pi
     # generate_angle = torch.atan2(generate_sampling[...,0], generate_sampling[...,1])
-    return generate_angle
+    return generate_angle, contact_info
 
 
 def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging): # temporally not using the grad scaling
@@ -190,7 +187,6 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
     
     for step, data in enumerate(train_queue):
         cond, curl, x, ang = data # TODO: cond can be used as the vae condition
-        
         # extent the dims B x 5 x 6
         orig_ang = ang.clone()
         orig_ang = orig_ang.cuda()
@@ -215,15 +211,20 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             loss += beta * kl_loss
             contact_loss = F.nll_loss(contact_info, cond.to(torch.long)) + 1
             recovered_data = recovered_data * np.pi # scale [-1,1] to [-pi, pi]
-            angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang)) # decoder needs to output probs, 
-            angle_loss = torch.mean(angle_loss)
-            loss += angle_loss + contact_loss  
+            bn_loss = model.batchnorm_loss()
+            # cos loss
+            # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang)) # decoder needs to output probs, 
+            # angle_loss = torch.mean(angle_loss)
+            # l2 loss
+            angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
+            loss += angle_loss + contact_loss #+ 0.1 * bn_loss
             KL_loss.update(kl_loss.item())
             reconstruction_loss.update(angle_loss.item())
             contact_loss_c.update(contact_loss.item())
             Total_loss.update(loss.item())
 
         grad_scalar.scale(loss).backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
         # utils.average_gradients(model.parameters(), args.distributed) # for distributed training
         grad_scalar.step(cnn_optimizer)
         grad_scalar.update()
@@ -277,8 +278,9 @@ def test(valid_queue, model, args, logging, writer, global_step):
             loss += kl_loss
             contact_loss = F.nll_loss(contact_info, cond.to(torch.long)) + 1
             recovered_data = recovered_data * np.pi
-            angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
-            angle_loss = torch.mean(angle_loss) # do not times the curl weight
+            # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
+            # angle_loss = torch.mean(angle_loss) # do not times the curl weight
+            angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1))
             loss += contact_loss + angle_loss
             vali_rel.update(angle_loss.item())
             vali_total.update(loss.item())
@@ -298,6 +300,7 @@ def print_para(model):
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser('VAE')
     parser.add_argument('--save', type=str, default='output_0309_v2',
                         help='id used for storing intermediate results')

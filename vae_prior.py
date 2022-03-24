@@ -85,19 +85,25 @@ class NAIVE_VAE(nn.Module):
 
         return recovered_data, mu, logl # this is logl
 
-    def sample_and_decode(self, number=10, seed_fix=False):
-        # number of generated_samples
-        if seed_fix:
-            seed = torch.empty(1, self.latent_dims).uniform_(0, 1).to(self.device)
-            label = torch.bernoulli(seed)
-            label = label.repeat(number,1)
-        else:
-            seed = torch.empty(number, self.latent_dims).uniform_(0, 1).to(self.device)
-            label = torch.bernoulli(seed)
-        latent_feature = label + torch.randn(number, self.latent_dims).to(self.device) * 5
+    # def sample_and_decode(self, number=10, seed_fix=False):
+    #     # number of generated_samples
+    #     if seed_fix:
+    #         seed = torch.empty(1, self.latent_dims).uniform_(0, 1).to(self.device)
+    #         label = torch.bernoulli(seed)
+    #         label = label.repeat(number,1)
+    #     else:
+    #         seed = torch.empty(number, self.latent_dims).uniform_(0, 1).to(self.device)
+    #         label = torch.bernoulli(seed)
+    #     latent_feature = label + torch.randn(number, self.latent_dims).to(self.device) * 5
+    #     out = self.decoder(latent_feature)
+    #     generated_data = out.reshape(number, self.sequence_length)
+    #     return generated_data, label
+
+    def sample_and_decode(self, number=10):
+        latent_feature = torch.randn(number, self.latent_dims).to(self.device)
         out = self.decoder(latent_feature)
         generated_data = out.reshape(number, self.sequence_length)
-        return generated_data, label
+        return generated_data
 
     def _get_BackBone(self,layer_num = 3):
         # set the Encoder network

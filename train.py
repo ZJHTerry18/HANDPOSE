@@ -85,7 +85,7 @@ def main(args):
     # set the model paras
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # model = NAIVE_VAE(1,20,5,device) # TODO: using the fixed number, latent related with the cond vector
-    model = eval(args.model)(1,20,args.latent_dims, 5,device) # 5 is the class dims
+    model = eval(args.model)(1,20,args.latent_dims,device) # 5 is the class dims
     model = model.cuda()
     logging.info('param size = %fM ', utils.count_parameters_in_M(model)) # counting the size
 
@@ -121,15 +121,15 @@ def main(args):
     VPP = args.batch_size / len(train_dataset)
     beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=1, ratio=0.7) # set the cyclic rounds
     if args.sample:
-        number_s = 15
+        number_s = 50
         seed = torch.empty(number_s, 5).uniform_(0, 1).to(device)
         label = torch.bernoulli(seed)
-        get_samples = sample_vis(model,checkpoint_file,label,number_s,False) # best or checkpoint
+        get_samples = sample_vis(model,best_file,label,number_s,False) # best or checkpoint
         get_samples = get_samples.reshape(number_s, 5,4)
         get_samples = get_samples.cpu().numpy()
         get_labels = label.cpu().numpy()
         # import pdb;pdb.set_trace()
-        vis(get_samples, get_labels,'vis_curl/')
+        vis(get_samples, get_labels,'vis_curl_naive_50/')
 
     else:
         for epoch in range(init_epoch, args.epochs): # start training
@@ -172,9 +172,8 @@ def sample_vis(model, checkpoint_file, cond, num=10, fix_cond=False):
     #     print(paras)
     model = model.cuda()
     model.eval()
-    import pdb;pdb.set_trace()
     with torch.no_grad():
-        generate_sampling = model.sample_and_decode(cond)
+        generate_sampling = model.sample_and_decode(num)
     # generate_sampling = torch.permute(generate_sampling,(0,2,1))
     generate_angle = generate_sampling * np.pi
     # generate_angle = torch.atan2(generate_sampling[...,0], generate_sampling[...,1])
@@ -214,7 +213,7 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # norm [-pi, pi] to [-1,1]
             input_angle = org_angle / np.pi
             # recovered_data, latent_mu, latent_sigma = model(x_input)
-            recovered_data, latent_mu, latent_logv = model(input_angle, cond)
+            recovered_data, latent_mu, latent_logv = model(input_angle)
             # calulate the KL and re loss
             loss = 0
             # mu_2 = torch.pow((latent_mu - cond),2) # TODO ： one form
@@ -224,10 +223,12 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # recovered_data = torch.permute(recovered_data,(0,2,1))
             # recovered_angle = torch.atan2(recovered_data[...,0], recovered_data[...,1])
             recovered_data = recovered_data * np.pi # scale [-1,1] to [-pi, pi]
-            angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle)) # decoder needs to output probs, 
-            # add loss weight for the curl samples
-            # angle_loss = angle_loss * curl_weight # does not matter for only curls
-            angle_loss = torch.mean(angle_loss)
+            # angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle)) # decoder needs to output probs, 
+            # # add loss weight for the curl samples
+            # # angle_loss = angle_loss * curl_weight # does not matter for only curls
+            # angle_loss = torch.mean(angle_loss)
+            # import pdb;pdb.set_trace()
+            angle_loss = torch.mean(torch.norm(recovered_data - org_angle.squeeze(), dim=-1, p=1)) # naive L1 loss
             if args.model == 'BVAE' or args.model == 'CVAE' or args.model == 'PVAE':
                 loss += model.batchnorm_loss() * 0.1
             loss = loss + beta * kl_loss + angle_loss # add a batchnorm loss
@@ -279,7 +280,7 @@ def test(valid_queue, model, args, logging):
             org_angle = torch.atan2(x[...,0], x[...,1])
             org_angle = org_angle.reshape(-1,1,20) # Add the backbone
             input_angle = org_angle / np.pi
-            recovered_data, latent_mu, latent_logv= model(input_angle, cond)
+            recovered_data, latent_mu, latent_logv= model(input_angle)
             # calulate the KL and re loss
             # mu_2 = torch.pow(latent_mu - cond,2)     
             mu_2 = torch.pow(latent_mu,2)
@@ -288,8 +289,10 @@ def test(valid_queue, model, args, logging):
             # recovered_data = torch.permute(recovered_data,(0,2,1))
             # recovered_angle = torch.atan2(recovered_data[...,0], recovered_data[...,1])
             recovered_data = recovered_data * np.pi
-            angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle))
-            angle_loss = torch.mean(angle_loss) # do not times the curl weight
+            # angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle))
+            # angle_loss = torch.mean(angle_loss) # do not times the curl weight
+            # angle_loss = torch.mean(torch.norm(recovered_data - org_angle, dim=(-1,-2), p=1)) # naive L1 loss
+            angle_loss = torch.mean(torch.norm(recovered_data - org_angle.squeeze(), dim=-1, p=1))
             loss = kl_loss + angle_loss
             vali_rel.update(angle_loss.item())
             vali_total.update(loss.item())

@@ -51,6 +51,7 @@ class GAT_VAE(nn.Module):
         self.gat_num = gat_num
         self.leakyrelu = nn.LeakyReLU(negative_slope=0.2)
         self.swish = Swish()
+        self.bn1d = nn.BatchNorm1d(nodes_num)
         for i in range(gat_num - 1): # It can add the residual block
             if i == 0:
                 self.weight_core.append(nn.Parameter(torch.randn(headers, gat_features_dims[i], gat_features_dims[i+1]).to(device), requires_grad=True))
@@ -60,7 +61,8 @@ class GAT_VAE(nn.Module):
         self.softmax = nn.Softmax(dim=-1) 
         # vae and decoder part
         # decode the hidden para into the contact form
-        self.pcp_embed = nn.Sequential(self._get_covnet(), nn.Linear(self.latent_dims * 5, self.latent_dims, bias=False), Swish())
+        self.pcp_embed_mu = nn.Sequential(nn.Linear(self.latent_dims * 5, self.latent_dims, bias=True), Swish()) # squish and embed
+        self.pcp_embed_logl = nn.Sequential(nn.Linear(self.latent_dims * 5, self.latent_dims, bias=True), Swish())
 
         self.hidden_decode = nn.Sequential(nn.Linear(self.latent_dims, self.latent_dims), Swish(),\
                             nn.Linear(self.latent_dims, 5), nn.Sigmoid()) # TODO: it may be the other forms
@@ -71,18 +73,23 @@ class GAT_VAE(nn.Module):
             self.vae_PCP.append(self._get_covnet())
  
         # mu logl 
-
         self.vae_dp = nn.ModuleList()
         self.node_decode = nn.ModuleList()
         for i in range(3):
             if i == 0:
-                self.node_decode.append(nn.Sequential(nn.Linear(self.latent_dims, 2, bias=False), nn.Tanh()))
+                self.node_decode.append(nn.Sequential(nn.Linear(self.latent_dims, self.latent_dims, bias=True), Swish(),\
+                    nn.Linear(self.latent_dims, 2, bias=True), nn.Tanh()))
             else:
-                self.node_decode.append(nn.Sequential(nn.Linear(self.latent_dims, 1, bias=False), nn.Tanh()))
-
+                self.node_decode.append(nn.Sequential(nn.Linear(self.latent_dims, self.latent_dims, bias=True), Swish(),\
+                    nn.Linear(self.latent_dims, 1, bias=True), nn.Tanh()))
             if i > 0:
                 self.vae_dp.append(self._get_covnet()) # only for 
 
+        # bn layers
+        self.all_bn_layers = []
+        for n, layer in self.named_modules():
+            if isinstance(layer, nn.BatchNorm1d):
+                self.all_bn_layers.append(layer)
 
     def forward(self, x):
         # x is the input dims B x 5 x 6
@@ -114,31 +121,36 @@ class GAT_VAE(nn.Module):
                 embeding_feature = self.swish(torch.sum(weighted_feature, dim = -2)) # B x H x 16 X f
                 split_feature = [embeding_feature[:,k,...] for k in range(self.headers)]
                 embeding_feature = torch.cat(split_feature, dim = -1) # B x H x 16 x KF
+                # do the node_num opt
+                embeding_feature = self.bn1d(embeding_feature) # do the bn within the 5 views
             else:
                 embeding_feature = self.swish(torch.mean(torch.sum(weighted_feature, dim = -2), dim=1))
         
         # PCP with H generate the whole generation
         kl_loss = 0
-        fusing_feature = torch.cat([embeding_feature[:,0:5,...].unsqueeze(-2), self.hidden_representation.repeat(batch_size,5,1).unsqueeze(-2)], dim = -2) # 
-        fusing_feature_c = [fusing_feature[:,k, :,:] for k in range(5)]
+        
+        # fusing_feature = torch.cat([embeding_feature[:,0:5,...].unsqueeze(-2), self.hidden_representation.repeat(batch_size,5,1).unsqueeze(-2)], dim = -2) # 
+        fusing_feature = embeding_feature[:,0:5,...]
+        # fusing_feature_c = [fusing_feature[:,k, :,:] for k in range(5)]
+        fusing_feature_c = [fusing_feature[:,k, :] for k in range(5)]
         fusing_feature_c = torch.cat(fusing_feature_c, dim=-1)
-        # root_representation = self.pcp_embed(fusing_feature.reshape(-1,2,self.latent_dims))
-        root_representation = self.pcp_embed(fusing_feature_c)
-        # root_representation = root_representation.reshape(batch_size,5)
-        root_mu = root_representation[...,0,:]; root_logl = root_representation[...,1,:]
+        root_mu = self.pcp_embed_mu(fusing_feature_c)
+        root_logl = self.pcp_embed_logl(fusing_feature_c)
+        # root_mu = root_representation[...,0,:]; root_logl = root_representation[...,1,:]
         # decode the feature
+        # limit the produce mu value, not just N(0,I), same contact with the same mu
         root_sigma = torch.exp(0.5* root_logl)
         kl_loss += 0.5 * torch.mean(torch.sum(root_mu ** 2 + root_sigma ** 2 - root_logl - 1, dim=-1))
         seed = torch.randn_like(root_sigma).to(self.device)
         sample_root = root_mu + seed * root_sigma
-        contact_info = self.hidden_decode(sample_root) # output --------
+        contact_info = self.hidden_decode(sample_root) # only one is not good
         # VAE part modification  
         root_feature = torch.cat([sample_root.unsqueeze(-2), self.hidden_representation.repeat(batch_size,1,1)], dim = -2)
         reconstruct_features = []
         PCP_vae_c = []
         # vae for 5 PCPs
         for k in range(5):
-            temp_r = self.vae_PCP[k](root_feature)
+            temp_r = self.vae_PCP[k](root_feature) # split 5 different views
             temp_mu = temp_r[...,0,:]; temp_logl = temp_r[...,1,:]
             temp_sigma = torch.exp(0.5* temp_logl)
             seed = torch.randn_like(temp_sigma).to(self.device)
@@ -168,7 +180,6 @@ class GAT_VAE(nn.Module):
         contact_info = torch.cat([1-contact_info.unsqueeze(-2), contact_info.unsqueeze(-2)], dim=-2)
         return reconstruction_angle, contact_info, kl_loss
         
-
     def _get_encoder(self, dim_l):
         # set the mlp network # set it as the fix
         layers = []
@@ -176,14 +187,55 @@ class GAT_VAE(nn.Module):
         # layers.append(nn.BatchNorm1d(dim_l[0]))
         for idx in range(length - 1):
             layers.append(nn.Sequential(nn.Linear(dim_l[idx], dim_l[idx + 1]), Swish())) # no batch_norm  nn.BatchNorm1d(dim_l[idx+1]), 
-
         return nn.Sequential(*layers)
 
-    def _get_covnet(self):
-        return nn.Sequential(nn.Conv1d(2, 2, kernel_size=1, bias=False), Swish(),\
-                        nn.Conv1d(2, 2, kernel_size=3, padding=1, bias=False), Swish(),\
-                        nn.Conv1d(2, 2, kernel_size=3, padding=1, bias=False), Swish())
+    def _get_covnet(self):#nn.BatchNorm1d(2, momentum=0.02),
+        return nn.Sequential(nn.Conv1d(2, 2, kernel_size=1, bias=True),  Swish(),\
+                        nn.Conv1d(2, 2, kernel_size=3, padding=1, bias=True), Swish(),\
+                        nn.Conv1d(2, 2, kernel_size=3, padding=1, bias=True),Swish())
+
+    def batchnorm_loss(self):
+        loss = 0
+        for l in self.all_bn_layers:
+            if l.affine:
+                loss += torch.max(torch.abs(l.weight))
+        return loss
     
+    def sample_generation(self, gen_num=10, var_=1):
+        root_sample = torch.randn(gen_num, self.latent_dims).to(self.device) * var_
+        contact_info = self.hidden_decode(root_sample)
+        contact_info = torch.round(contact_info) #    
+        root_feature = torch.cat([root_sample.unsqueeze(-2), self.hidden_representation.repeat(gen_num,1,1)], dim = -2)
+        reconstruct_features = []
+        PCP_vae_c = []
+        for k in range(5):
+            temp_r = self.vae_PCP[k](root_feature)
+            temp_mu = temp_r[...,0,:]; temp_logl = temp_r[...,1,:]
+            temp_sigma = torch.exp(0.5* temp_logl)
+            seed = torch.randn_like(temp_sigma).to(self.device)
+            sample_pcp = temp_mu + seed * temp_sigma  # can be the bottom up form
+            PCP_vae_c.append(sample_pcp.unsqueeze(-2))
+        PCP_vae_c = torch.cat(PCP_vae_c, dim=-2)
+        reconstruct_features.append(PCP_vae_c)
+        PCP_f = torch.cat([PCP_vae_c.unsqueeze(-2), root_sample.unsqueeze(-2).unsqueeze(-2).repeat(1,5,1,1)], dim = -2)
+        # vae for 5 PIPs and DIPs
+        VAE_F = PCP_f.clone()
+        for k in range(2):
+            temp_r = self.vae_dp[k](VAE_F.reshape(-1,2,self.latent_dims))
+            temp_mu = temp_r[...,0,:].reshape(gen_num,5,self.latent_dims); temp_logl = temp_r[...,1,:].reshape(gen_num,5,self.latent_dims)
+            temp_sigma = torch.exp(0.5* temp_logl)
+            seed = torch.randn_like(temp_sigma).to(self.device)
+            sample_f = temp_mu + seed * temp_sigma  # can be the bottom up form
+            reconstruct_features.append(sample_f)#.reshape(batch_size,5,self.latent_dims)
+            VAE_F = torch.cat([sample_f.unsqueeze(-2), PCP_vae_c.unsqueeze(-2)], dim = -2)
+        reconstruction_angle = []
+        # reconstruct the result
+        for l in range(3):
+            reconstruction_angle.append(self.node_decode[l](reconstruct_features[l]))
+        reconstruction_angle = torch.cat(reconstruction_angle, dim=-1)
+
+        return reconstruction_angle, contact_info
+
 
 if __name__ == '__main__':
     device = torch.device('cpu')
