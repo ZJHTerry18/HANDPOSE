@@ -20,11 +20,10 @@ class Bottleneck(nn.Module):
                                bias=False)
         self.bn3 = nn.BatchNorm1d(planes * self.expansion,
                                   momentum=BN_MOMENTUM)
-        self.relu = Swish()#nn.ReLU(inplace=True)
+        self.relu = Swish()  # nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-
-
+        
     def forward(self, x):
         residual = x
 

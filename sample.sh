@@ -1,2 +1,2 @@
-#CUDA_VISIBLE_DEVICES=7 python train.py --num_process_per_node 1 --sample --port 10001 --save output317 --latent_dims 6
-CUDA_VISIBLE_DEVICES=7 python train_2.py --num_process_per_node 1 --sample --port 10001 --save output317_pvae --latent_dims 5 --model PVAE
+CUDA_VISIBLE_DEVICES=7 python train.py --num_process_per_node 1 --sample --port 10001 --save output318_CVAE --latent_dims 16 --model CVAE
+# CUDA_VISIBLE_DEVICES=7 python train_2.py --num_process_per_node 1 --sample --port 10001 --save output317_pvae --latent_dims 5 --model PVAE

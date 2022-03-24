@@ -9,8 +9,8 @@ import glob
 Folder = '/Extra/panzhiyu/IVG_HAND/test_curl'
 files = os.listdir(Folder)
 files.sort(key = lambda x: int(x.strip('.txt').replace('_','')))
-SaveF = '/Extra/panzhiyu/IVG_HAND/test_pkl'
-
+SaveF_curl = '/Extra/panzhiyu/IVG_HAND/test/curl'
+SaveF_noncurl = '/Extra/panzhiyu/IVG_HAND/test/non_curl'
 namespace = ['t','i','m','r','l']
 
 for f in tqdm(files):
@@ -43,10 +43,14 @@ for f in tqdm(files):
                 finger_info = np.concatenate(finger_info, axis=-1)
                 saving_data[namespace[finger_idx]] = finger_info
                 del finger_info
-    
-    save_name = osp.join(SaveF, f.replace('txt','pkl'))
-    with open(save_name,'wb') as h:
-        pickle.dump(saving_data,h)
+    if saving_data['curl'] == 1:
+        save_name = osp.join(SaveF_curl, f.replace('txt','pkl'))
+        with open(save_name,'wb') as h:
+            pickle.dump(saving_data,h)
+    else:
+        save_name = osp.join(SaveF_noncurl, f.replace('txt','pkl'))
+        with open(save_name,'wb') as h:
+            pickle.dump(saving_data,h)
 
         
 

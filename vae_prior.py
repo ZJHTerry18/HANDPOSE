@@ -90,12 +90,11 @@ class NAIVE_VAE(nn.Module):
         if seed_fix:
             seed = torch.empty(1, self.latent_dims).uniform_(0, 1).to(self.device)
             label = torch.bernoulli(seed)
-            label[:,-1] = 0 # for noncurl
             label = label.repeat(number,1)
         else:
             seed = torch.empty(number, self.latent_dims).uniform_(0, 1).to(self.device)
             label = torch.bernoulli(seed)
-        latent_feature = label + torch.randn(number, self.latent_dims).to(self.device)
+        latent_feature = label + torch.randn(number, self.latent_dims).to(self.device) * 5
         out = self.decoder(latent_feature)
         generated_data = out.reshape(number, self.sequence_length)
         return generated_data, label

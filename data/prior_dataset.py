@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.utils.data as data
 import glob
 import os
+from hand_model_vis import vis
 
 namespace = ['t','i','m','r','l']
 
@@ -42,6 +43,24 @@ class ivg_HD_naive(data.Dataset):
         finger_ang_cor_c = torch.cos(finger_ang.reshape(-1,1))
         finger_ang_cor = torch.cat([finger_ang_cor_s, finger_ang_cor_c], dim = -1)
         return cond, curl, finger_ang_cor, finger_ang
+
+    def vis_dataset(self):
+        cond_c = []
+        ang_c = []
+        for i in range(self.len):
+            file = self.hds[i]
+            with open(file,'rb') as f:
+                readin_data = pickle.load(f)
+            cond = readin_data['cond']
+            finger_ang = np.zeros((len(namespace), 4)) # 4 is the angle dim per finger
+            for idx, name in enumerate(namespace):
+                finger_ang[idx:idx+1,:] = readin_data[name] * np.pi / 180
+            cond_c.append(cond[None,...])
+            ang_c.append(finger_ang[None,...])
+        cond_c = np.concatenate(cond_c, axis=0)
+        ang_c = np.concatenate(ang_c, axis=0)
+        vis(ang_c,cond_c, 'vis_train_curl')
+            
 
 if __name__ == '__main__':
     folder = '/Extra/panzhiyu/CollectHD'
