@@ -56,12 +56,12 @@ def main(args):
     writer = utils.Writer(args.global_rank, args.save)
 
     # get the train data
-    train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/curl', True)
+    train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/non_curl', True)
     if args.data_vis:
         train_dataset.vis_dataset()
         exit() 
 
-    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/curl', False) # is_training is meaningless
+    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/non_curl', False) # is_training is meaningless
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -85,7 +85,7 @@ def main(args):
     # set the model paras
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # model = NAIVE_VAE(1,20,5,device) # TODO: using the fixed number, latent related with the cond vector
-    model = eval(args.model)(2,args.latent_dims, 8, 4, device) # input length, latent, hidden, headers
+    model = eval(args.model)(2, args.latent_dims, 8, 4, device) # input length, latent, hidden, headers
     model = model.cuda()
     logging.info('param size = %fM ', utils.count_parameters_in_M(model)) # counting the size
 
@@ -122,11 +122,11 @@ def main(args):
     beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=5, ratio=0.7) # set the cyclic rounds
     if args.sample:
         number_s = 50
-        var_ = 10
+        var_ = 1
         get_samples, contact_info = sample_vis(model,best_file,number_s, var_) # best or checkpoint
         get_samples = get_samples.cpu().numpy()
         contact_info = contact_info.cpu().numpy()
-        vis(get_samples, contact_info,'vis_curl/')
+        vis(get_samples, contact_info,'vis_non_gat_l_var/')
         exit()
     else:
         for epoch in range(init_epoch, args.epochs): # start training

@@ -194,8 +194,8 @@ def vis(samples, vis_label, save_dir):
         ax2.set_xlim3d([-10,10])
         ax2.set_ylim3d([0,20])
         ax2.set_zlim3d([-10,10])
-        # ax.view_init(elev=15, azim=-30)
         ax.view_init(elev=45, azim=45)
+        # ax.view_init(elev=90, azim=90)
         ax2.view_init(elev=0, azim=0)
         # # direct coordinations
         # xp = [8.97,0.944,2.70,4.78,6.72,-2.11,-3.78,-4.93,0.256,-1.20,-2.13,3.64,4.56,5.39,5.24,5.75,6.57]
