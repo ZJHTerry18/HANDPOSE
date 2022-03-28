@@ -59,7 +59,7 @@ def main(args):
     train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/non_curl', True)
     if args.data_vis:
         train_dataset.vis_dataset()
-        exit() 
+        exit()
 
     valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/non_curl', False) # is_training is meaningless
     train_sampler, valid_sampler = None, None
@@ -126,7 +126,7 @@ def main(args):
         get_samples, contact_info = sample_vis(model,best_file,number_s, var_) # best or checkpoint
         get_samples = get_samples.cpu().numpy()
         contact_info = contact_info.cpu().numpy()
-        vis(get_samples, contact_info,'vis_non_gat_l_var/')
+        vis(get_samples, contact_info,'vis_gat_curl/')
         exit()
     else:
         for epoch in range(init_epoch, args.epochs): # start training
@@ -145,7 +145,7 @@ def main(args):
             # beta = 1
             global_step = train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging)
             # prepare the eval
-            model.eval()
+            model.eval() 
             eval_freq = 15
             min_loss = torch.tensor(np.inf).to(device)
             if epoch % eval_freq == 0 or epoch == (args.epochs - 1):

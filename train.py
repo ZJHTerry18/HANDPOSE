@@ -56,12 +56,14 @@ def main(args):
     writer = utils.Writer(args.global_rank, args.save)
 
     # get the train data
-    train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/curl', True)
+    # train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/curl', True)
+    train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train_pkl', True)
     if args.data_vis:
         train_dataset.vis_dataset()
         exit() 
 
-    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/curl', False) # is_training is meaningless
+    # valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/curl', False) # is_training is meaningless
+    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test_pkl', False) # is_training is meaningless
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -129,7 +131,7 @@ def main(args):
         get_samples = get_samples.cpu().numpy()
         get_labels = label.cpu().numpy()
         # import pdb;pdb.set_trace()
-        vis(get_samples, get_labels,'vis_curl_naive_50/')
+        vis(get_samples, get_labels,'vis_curl_50/')
 
     else:
         for epoch in range(init_epoch, args.epochs): # start training
