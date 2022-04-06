@@ -17,6 +17,7 @@ from thirdparty.adamax import Adamax
 from torch.cuda.amp import autocast, GradScaler
 
 from hand_model_vis import vis
+from transfer_cordinate import angle2cord
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -56,12 +57,12 @@ def main(args):
     writer = utils.Writer(args.global_rank, args.save)
 
     # get the train data
-    train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/non_curl', True)
+    train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train_pkl', True)
     if args.data_vis:
         train_dataset.vis_dataset()
         exit()
 
-    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/non_curl', False) # is_training is meaningless
+    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test_pkl', False) # is_training is meaningless
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -118,15 +119,16 @@ def main(args):
         global_step, init_epoch = 0, 0
 
     # generate the beta paras via epochs
-    VPP = args.batch_size / len(train_dataset)
-    beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=5, ratio=0.7) # set the cyclic rounds
+    # VPP = args.batch_size / len(train_dataset)
+    VPP = 0.5
+    beta_collects = frange_cycle_linear(args.epochs, stop = VPP, n_cycle=4, ratio=0.7) # set the cyclic rounds
     if args.sample:
         number_s = 50
-        var_ = 1
-        get_samples, contact_info = sample_vis(model,best_file,number_s, var_) # best or checkpoint
+        var_ = 10
+        get_samples, contact_info = sample_vis(model,checkpoint_file,number_s, var_) # best or checkpoint
         get_samples = get_samples.cpu().numpy()
         contact_info = contact_info.cpu().numpy()
-        vis(get_samples, contact_info,'vis_gat_curl/')
+        vis(get_samples, contact_info,'vis_gat_10/')
         exit()
     else:
         for epoch in range(init_epoch, args.epochs): # start training
@@ -134,7 +136,6 @@ def main(args):
             if args.distributed:
                 train_queue.sampler.set_epoch(global_step + args.seed) # random _ sampler
                 valid_queue.sampler.set_epoch(0)
-
             if epoch > args.warmup_epochs:
                 cnn_scheduler.step() # 
             
@@ -143,9 +144,9 @@ def main(args):
             beta = beta_collects[epoch]
             # set the constant beta
             # beta = 1
-            global_step = train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging)
+            global_step = train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging, device)
             # prepare the eval
-            model.eval() 
+            model.eval()
             eval_freq = 15
             min_loss = torch.tensor(np.inf).to(device)
             if epoch % eval_freq == 0 or epoch == (args.epochs - 1):
@@ -177,7 +178,7 @@ def sample_vis(model, checkpoint_file, num=10, var_ = 1):
     return generate_angle, contact_info
 
 
-def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging): # temporally not using the grad scaling
+def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging, device): # temporally not using the grad scaling
     # nelbo = utils.AvgrageMeter()
     KL_loss = utils.AvgrageMeter()
     reconstruction_loss = utils.AvgrageMeter()
@@ -205,7 +206,7 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # norm [-pi, pi] to [-1,1]
             input_angle = ang / np.pi
             # recovered_data, latent_mu, latent_sigma = model(x_input)
-            recovered_data, contact_info, kl_loss = model(input_angle)
+            recovered_data, contact_info, kl_loss, _, _ = model(input_angle)
             # calulate the KL and re loss
             loss = 0
             loss += beta * kl_loss
@@ -216,10 +217,15 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang)) # decoder needs to output probs, 
             # angle_loss = torch.mean(angle_loss)
             # l2 loss
-            angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
-            loss += angle_loss + contact_loss #+ 0.1 * bn_loss
+            # replace the angle loss with the cordinate loss TODO: whether using the angle loss, or not
+            rec_cor = angle2cord(recovered_data.to(torch.float), device)
+            org_cor = angle2cord(orig_ang, device)
+            cor_loss = torch.mean(torch.norm(rec_cor - org_cor, dim=-1, p=1))
+            # angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
+            
+            loss += cor_loss + contact_loss #+ 0.1 * bn_loss
             KL_loss.update(kl_loss.item())
-            reconstruction_loss.update(angle_loss.item())
+            reconstruction_loss.update(cor_loss.item())
             contact_loss_c.update(contact_loss.item())
             Total_loss.update(loss.item())
 
@@ -237,7 +243,7 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
         if (global_step + 1) % 100 == 0:
             # norm
             writer.add_scalar('train/loss', loss, global_step)
-            writer.add_scalar('train/re_loss', angle_loss, global_step)
+            writer.add_scalar('train/re_loss', cor_loss, global_step)
             writer.add_scalar('train/kl_loss', kl_loss, global_step)
             writer.add_scalar('train/contact_loss', contact_loss, global_step)
             writer.add_scalar('train/beta', beta, global_step)
@@ -261,7 +267,6 @@ def test(valid_queue, model, args, logging, writer, global_step):
     model.eval()
     for step, data in enumerate(valid_queue):
         cond, curl, x, ang = data
-        
         orig_ang = ang.clone()
         zeros = torch.zeros(ang.shape[0], ang.shape[1], 1)
         ang = torch.cat([ang[:,:,:3], zeros, ang[:,:,3:4], zeros], dim=-1)
@@ -272,7 +277,7 @@ def test(valid_queue, model, args, logging, writer, global_step):
         orig_ang = orig_ang.cuda()
         with torch.no_grad():
             input_angle = ang / np.pi
-            recovered_data, contact_info, kl_loss = model(input_angle)
+            recovered_data, contact_info, kl_loss, _, _ = model(input_angle)
             # calulate the KL and re loss
             loss = 0
             loss += kl_loss
@@ -365,7 +370,7 @@ if __name__ == '__main__':
                         help='address for master')
     parser.add_argument('--port', type=str, default='10000',
                         help='address for master')
-    parser.add_argument('--seed', type=int, default=1,
+    parser.add_argument('--seed', type=int, default=42,
                         help='seed used for initialization')
     args = parser.parse_args()
     utils.create_exp_dir(args.save) # create folder

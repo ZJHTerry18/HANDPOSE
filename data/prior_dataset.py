@@ -1,4 +1,3 @@
-from concurrent.futures import process
 import numpy as np
 import pickle
 import torch
@@ -59,7 +58,7 @@ class ivg_HD_naive(data.Dataset):
             ang_c.append(finger_ang[None,...])
         cond_c = np.concatenate(cond_c, axis=0)
         ang_c = np.concatenate(ang_c, axis=0)
-        vis(ang_c,cond_c, 'vis_train_curl')
+        vis(ang_c,cond_c, 'vis_train_dataset')
             
 
 if __name__ == '__main__':

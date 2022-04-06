@@ -6,12 +6,12 @@ import argparse # prepare for the arg config
 
 import torch.distributed as dist
 from torch.multiprocessing import Process
+import torch.nn.functional as F
 
-from vae_prior import NAIVE_VAE
-from backbone_n_vae_prior import BVAE
-from vae_cond import CVAE
+# from models.gnn_vae import GAT_VAE
+from models.finger_net import finger_gat_embeding_model
 
-from data.prior_dataset import ivg_HD_naive
+from data.finger_dataset import FingerPrint
 import utils
 from thirdparty.adamax import Adamax
 from torch.cuda.amp import autocast, GradScaler
@@ -45,6 +45,18 @@ def frange_cycle_linear(n_iter, start=0.0, stop=1.0,  n_cycle=1, ratio=0.7): # i
             i += 1
     return L 
 
+def get_optimizer(args, model):
+    for params in model.gat_vae.parameters():
+        params.requires_grad = False
+    if args.fast_adamax:
+        cnn_optimizer = Adamax(filter(lambda p: p.requires_grad, model.parameters()), args.learning_rate,
+                               weight_decay=args.weight_decay, eps=1e-3)
+    else:
+        cnn_optimizer = torch.optim.Adamax(filter(lambda p: p.requires_grad, model.parameters()), args.learning_rate,
+                                           weight_decay=args.weight_decay, eps=1e-3)
+
+    return model, cnn_optimizer
+
 def main(args):
     # ensures that weight initializations are all the same
     torch.manual_seed(args.seed)
@@ -56,15 +68,11 @@ def main(args):
     writer = utils.Writer(args.global_rank, args.save)
 
     # get the train data
-    # train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train/curl', True)
-    # train_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/train_pkl', True)
-    train_dataset = ivg_HD_naive('/Extra/panzhiyu/finger/datasetfp_v0.4/leap/p0/left_pickle/', True)
-    if args.data_vis:
-        train_dataset.vis_dataset()
-        exit() 
-
-    # valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test/curl', False) # is_training is meaningless
-    valid_dataset = ivg_HD_naive('/Extra/panzhiyu/IVG_HAND/test_pkl', False) # is_training is meaningless
+    folder_images = '/Extra/panzhiyu/finger/datasetfp_v0.4/fingerprint_single'
+    folder_motion = '/Extra/panzhiyu/finger/datasetfp_v0.4/leap' 
+    annotation_file = '/Extra/panzhiyu/finger/datasetfp_v0.4/position_info_type.pkl'
+    train_dataset = FingerPrint(folder_images,folder_motion, annotation_file, True)
+    valid_dataset = FingerPrint(folder_images,folder_motion, annotation_file, False) # is_training is meaningless
     train_sampler, valid_sampler = None, None
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -88,17 +96,12 @@ def main(args):
     # set the model paras
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # model = NAIVE_VAE(1,20,5,device) # TODO: using the fixed number, latent related with the cond vector
-    model = eval(args.model)(1,20,args.latent_dims,device) # 5 is the class dims
+    gat_file = 'gat_flat/best_model.pt' # flat or curl
+    model = eval(args.model)(args, gat_file = gat_file, device=device) # input length, latent, hidden, headers
     model = model.cuda()
     logging.info('param size = %fM ', utils.count_parameters_in_M(model)) # counting the size
 
-    if args.fast_adamax:
-        cnn_optimizer = Adamax(model.parameters(), args.learning_rate,
-                               weight_decay=args.weight_decay, eps=1e-3)
-    else:
-        cnn_optimizer = torch.optim.Adamax(model.parameters(), args.learning_rate,
-                                           weight_decay=args.weight_decay, eps=1e-3)
-    
+    model, cnn_optimizer = get_optimizer(args, model)
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         cnn_optimizer, float(args.epochs - args.warmup_epochs - 1), eta_min=args.learning_rate_min)
     
@@ -121,37 +124,27 @@ def main(args):
         global_step, init_epoch = 0, 0
 
     # generate the beta paras via epochs
-    VPP = args.batch_size / len(train_dataset)
-    beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=1, ratio=0.7) # set the cyclic rounds
+    # VPP = args.batch_size / len(train_dataset)
+    # beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=5, ratio=0.7) # set the cyclic rounds
     if args.sample:
-        number_s = 50
-        seed = torch.empty(number_s, 5).uniform_(0, 1).to(device)
-        label = torch.bernoulli(seed)
-        get_samples = sample_vis(model,best_file,label,number_s,False) # best or checkpoint
-        get_samples = get_samples.reshape(number_s, 5,4)
-        get_samples = get_samples.cpu().numpy()
-        get_labels = label.cpu().numpy()
-        # import pdb;pdb.set_trace()
-        vis(get_samples, get_labels,'vis_curl_50/')
-
+        validate_vis(valid_queue, best_file, model)
+        exit()
     else:
         for epoch in range(init_epoch, args.epochs): # start training
             # update lrs.
             if args.distributed:
                 train_queue.sampler.set_epoch(global_step + args.seed) # random _ sampler
                 valid_queue.sampler.set_epoch(0)
-
             if epoch > args.warmup_epochs:
                 cnn_scheduler.step() # 
-            
             # Logging.
             logging.info('epoch %d', epoch)
-            beta = beta_collects[epoch]
+            # beta = beta_collects[epoch]
             # set the constant beta
             # beta = 1
-            global_step = train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging)
+            global_step = train(train_queue, model, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging)
             # prepare the eval
-            model.eval()
+            model.eval() 
             eval_freq = 15
             min_loss = torch.tensor(np.inf).to(device)
             if epoch % eval_freq == 0 or epoch == (args.epochs - 1):
@@ -159,7 +152,7 @@ def main(args):
                                 'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
                                 'args': args, 'scheduler': cnn_scheduler.state_dict(),
                                 'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
-                output_re_loss = test(valid_queue, model, args, logging)
+                output_re_loss = test(valid_queue, model, args, logging, writer, global_step)
                 if output_re_loss < min_loss:
                     torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                                 'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
@@ -168,7 +161,7 @@ def main(args):
             writer.close()
 
 
-def sample_vis(model, checkpoint_file, cond, num=10, fix_cond=False):
+def sample_vis(model, checkpoint_file, num=10, var_ = 1):
     checkpoint = torch.load(checkpoint_file, map_location='cpu')
     model.load_state_dict(checkpoint['state_dict'])
     # for paras in model.decoder.parameters():
@@ -176,70 +169,60 @@ def sample_vis(model, checkpoint_file, cond, num=10, fix_cond=False):
     model = model.cuda()
     model.eval()
     with torch.no_grad():
-        generate_sampling = model.sample_and_decode(num)
+        generate_sampling, contact_info = model.sample_generation(num, var_)
     # generate_sampling = torch.permute(generate_sampling,(0,2,1))
     generate_angle = generate_sampling * np.pi
     # generate_angle = torch.atan2(generate_sampling[...,0], generate_sampling[...,1])
-    return generate_angle
+    return generate_angle, contact_info
+
+# validation : using the validate images for 1. generate the posible poses and sample from the vae latent space; 2. visualization by the MANO or others
 
 
-def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging): # temporally not using the grad scaling
+def train(train_queue, model, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging): # temporally not using the grad scaling
     # nelbo = utils.AvgrageMeter()
     KL_loss = utils.AvgrageMeter()
     reconstruction_loss = utils.AvgrageMeter()
+    # contact_loss_c = utils.AvgrageMeter() 
     Total_loss = utils.AvgrageMeter()
     model.train()
     
     for step, data in enumerate(train_queue):
-        cond, curl, x, ang = data # TODO: cond can be used as the vae condition
-        # import pdb;pdb.set_trace()
-        x = x.cuda()
-        cond = cond.cuda().to(x.dtype)
-        curl = curl.cuda()
-        # TODO: add one dimension to the cond
-        # cond = torch.cat([cond, curl], dim=-1)
-        curl_weight = curl * 6.7 + (curl == 0)
-        # change bit length
-        # x = utils.pre_process(x, args.num_x_bits)
-        # warm-up lr
+        images, finger_ang, centers, types, cond = data
+        # extent the dims B x 5 x 6
+        orig_ang = finger_ang.clone()
+        orig_ang = orig_ang.cuda()
+        zeros = torch.zeros(finger_ang.shape[0], finger_ang.shape[1], 1)
+        ang = torch.cat([finger_ang[:,:,:3], zeros, finger_ang[:,:,3:4], zeros], dim=-1)
+        cond = cond.cuda().to(ang.dtype)                                                     
+        ang = ang.cuda()
+        images = images.cuda()
+        centers = centers.cuda()
+        types = types.cuda()
         if global_step < warmup_iters:
             lr = args.learning_rate * float(global_step) / warmup_iters
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
         # cnn_optimizer.zero_grad()
         with autocast():
-            # x_input = torch.permute(x, (0,2,1)) # B,C,L
-            org_angle = torch.atan2(x[...,0], x[...,1])
             # input the angle
-            # org_angle = org_angle.reshape(-1,20)# 20 is the seq length
-            org_angle = org_angle.reshape(-1,1,20)
-            # norm [-pi, pi] to [-1,1]
-            input_angle = org_angle / np.pi
-            # recovered_data, latent_mu, latent_sigma = model(x_input)
-            recovered_data, latent_mu, latent_logv = model(input_angle)
+            input_angle = ang / np.pi # norm [-pi, pi] to [-1,1]
+            recovered_data, kl_loss = model(images, centers, types, input_angle)
             # calulate the KL and re loss
             loss = 0
-            # mu_2 = torch.pow((latent_mu - cond),2) # TODO ： one form
-            mu_2 = torch.pow(latent_mu,2)
-            sigma_2 = torch.exp(latent_logv)          
-            kl_loss = 0.5 * torch.mean(torch.sum(mu_2 + sigma_2 - latent_logv - 1, dim=-1))
-            # recovered_data = torch.permute(recovered_data,(0,2,1))
-            # recovered_angle = torch.atan2(recovered_data[...,0], recovered_data[...,1])
+            loss += kl_loss
             recovered_data = recovered_data * np.pi # scale [-1,1] to [-pi, pi]
-            # angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle)) # decoder needs to output probs, 
-            # # add loss weight for the curl samples
-            # # angle_loss = angle_loss * curl_weight # does not matter for only curls
+            # cos loss
+            # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang)) # decoder needs to output probs, 
             # angle_loss = torch.mean(angle_loss)
-            # import pdb;pdb.set_trace()
-            angle_loss = torch.mean(torch.norm(recovered_data - org_angle.squeeze(), dim=-1, p=1)) # naive L1 loss
-            if args.model == 'BVAE' or args.model == 'CVAE' or args.model == 'PVAE':
-                loss += model.batchnorm_loss() * 0.1
-            loss = loss + beta * kl_loss + angle_loss # add a batchnorm loss
+            # l2 loss
+            angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
+            loss += angle_loss
             KL_loss.update(kl_loss.item())
             reconstruction_loss.update(angle_loss.item())
             Total_loss.update(loss.item())
 
         grad_scalar.scale(loss).backward()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
         # utils.average_gradients(model.parameters(), args.distributed) # for distributed training
         grad_scalar.step(cnn_optimizer)
         grad_scalar.update()
@@ -254,76 +237,118 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             writer.add_scalar('train/loss', loss, global_step)
             writer.add_scalar('train/re_loss', angle_loss, global_step)
             writer.add_scalar('train/kl_loss', kl_loss, global_step)
-            writer.add_scalar('train/beta', beta, global_step)
+            # writer.add_scalar('train/contact_loss', contact_loss, global_step)
+            # writer.add_scalar('train/beta', beta, global_step)
             logging.info('train %d: the total loss is %f', global_step, Total_loss.avg)
-            logging.info('The beta is %f', beta)
+            # logging.info('The beta is %f', beta)
             logging.info('The kl loss is %f', KL_loss.avg)
             logging.info('The re loss is %f', reconstruction_loss.avg)
+            # logging.info('The con loss is %f', contact_loss_c.avg)
         
         global_step += 1
 
     return global_step
 
 
-def test(valid_queue, model, args, logging):
+def test(valid_queue, model, args, logging, writer, global_step):
     if args.distributed:
         dist.barrier()
     vali_rel = utils.AvgrageMeter()
     vali_total = utils.AvgrageMeter()
+    # vali_con = utils.AvgrageMeter()
     model.eval()
     for step, data in enumerate(valid_queue):
-        cond, curl, x, ang = data
-        cond = cond.cuda().to(x.dtype)
-        curl = curl.cuda()
-        # cond = torch.cat([cond, curl],dim=-1)
-        curl_weight = curl * 6.7 + (curl == 0)
-        x = x.cuda()
+        images, finger_ang, centers, types, cond = data
+        orig_ang = finger_ang.clone()
+        zeros = torch.zeros(finger_ang.shape[0], finger_ang.shape[1], 1)
+        ang = torch.cat([finger_ang[:,:,:3], zeros, finger_ang[:,:,3:4], zeros], dim=-1)
+        cond = cond.cuda().to(ang.dtype)
+        ang = ang.cuda()
+        orig_ang = orig_ang.cuda()
+        images = images.cuda()
+        centers = centers.cuda()
+        types = types.cuda()
         with torch.no_grad():
-            # x_input = torch.permute(x, (0,2,1)) # B,C,L
-            org_angle = torch.atan2(x[...,0], x[...,1])
-            org_angle = org_angle.reshape(-1,1,20) # Add the backbone
-            input_angle = org_angle / np.pi
-            recovered_data, latent_mu, latent_logv= model(input_angle)
+            input_angle = ang / np.pi
+            recovered_data, kl_loss = model(images, centers, types, input_angle)
             # calulate the KL and re loss
-            # mu_2 = torch.pow(latent_mu - cond,2)     
-            mu_2 = torch.pow(latent_mu,2)
-            sigma_2 = torch.exp(latent_logv)       
-            kl_loss = 0.5 * torch.mean(torch.sum(mu_2 + sigma_2 - latent_logv - 1, dim=-1))
-            # recovered_data = torch.permute(recovered_data,(0,2,1))
-            # recovered_angle = torch.atan2(recovered_data[...,0], recovered_data[...,1])
+            loss = 0
+            loss += kl_loss
             recovered_data = recovered_data * np.pi
-            # angle_loss = 2 * (1 - torch.cos(recovered_data - org_angle))
+            # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
             # angle_loss = torch.mean(angle_loss) # do not times the curl weight
-            # angle_loss = torch.mean(torch.norm(recovered_data - org_angle, dim=(-1,-2), p=1)) # naive L1 loss
-            angle_loss = torch.mean(torch.norm(recovered_data - org_angle.squeeze(), dim=-1, p=1))
-            loss = kl_loss + angle_loss
+            angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1))
+            loss += angle_loss
             vali_rel.update(angle_loss.item())
             vali_total.update(loss.item())
-            
 
-    # utils.average_tensor(nelbo_avg.avg, args.distributed)
-    # utils.average_tensor(neg_log_p_avg.avg, args.distributed)
     if args.distributed:
         # block to sync
         dist.barrier()
     logging.info('val, step: %d, Total: %f, Reconstraction %f', step, vali_total.avg, vali_rel.avg)
+    writer.add_scalar('train/vali_re', torch.tensor(vali_rel.avg), global_step)
     return vali_rel.avg
+
+def validate_vis(valid_queue, load_file, model, gap = 10):
+    checkpoint = torch.load(load_file, map_location='cpu')
+    model.load_state_dict(checkpoint['state_dict'])
+    model = model.cuda()
+    model.eval()
+    vis_gt_ang = []
+    vis_pred_ang = []
+    cond_list = []
+    for step, data in enumerate(valid_queue):
+        if step % gap == 0:
+            images, finger_ang, centers, types, cond = data
+            orig_ang = finger_ang.clone()
+            zeros = torch.zeros(finger_ang.shape[0], finger_ang.shape[1], 1)
+            ang = torch.cat([finger_ang[:,:,:3], zeros, finger_ang[:,:,3:4], zeros], dim=-1)
+            cond = cond.cuda().to(ang.dtype)
+            ang = ang.cuda()
+            orig_ang = orig_ang.cuda()
+            images = images.cuda()
+            centers = centers.cuda()
+            types = types.cuda()
+            with torch.no_grad():
+                input_angle = ang / np.pi
+                recovered_data, kl_loss = model(images, centers, types, input_angle)
+                # calulate the KL and re loss
+                loss = 0
+                loss += kl_loss
+                recovered_data = recovered_data * np.pi
+                # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
+                # angle_loss = torch.mean(angle_loss) # do not times the curl weight
+                angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1))
+                vis_gt_ang.append(orig_ang)
+                vis_pred_ang.append(recovered_data)
+                cond_list.append(cond)
+                loss += angle_loss
+    vis_gt_ang = torch.cat(vis_gt_ang, dim=0)
+    vis_pred_ang = torch.cat(vis_pred_ang, dim=0)
+    cond_list = torch.cat(cond_list, dim=0)
+    vis_gt_ang = vis_gt_ang.cpu().numpy()
+    vis_pred_ang = vis_pred_ang.cpu().numpy()
+    contact_info = cond_list.cpu().numpy()
+    vis(vis_gt_ang, contact_info,'vis_gt_finger_flat/')
+    vis(vis_pred_ang, contact_info,'vis_pred_finger_flat/')
 
 def print_para(model):
     for name, paras in model.named_parameters():
         print(name, '        ', paras)
         
 
-
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser('VAE')
     parser.add_argument('--save', type=str, default='output_0309_v2',
                         help='id used for storing intermediate results')
-    # parser.add_argument('--dataset', type=str, default='mnist',
-    #                     choices=['cifar10', 'mnist', 'omniglot', 'celeba_64', 'celeba_256',
-    #                              'imagenet_32', 'ffhq', 'lsun_bedroom_128', 'stacked_mnist',
-    #                              'lsun_church_128', 'lsun_church_64'],
-    #                     help='which dataset to use') # TODO: for multi-datasets
+    # gat model
+    parser.add_argument('--latent_dims', type=int, default=8,
+                        help='the dimensions of latent scales')
+    parser.add_argument('--input_dims', type=int, default=2,
+                        help='input_dim')
+    parser.add_argument('--num_headers', type=int, default=4,
+                        help='headers')
      # optimization
     parser.add_argument('--batch_size', type=int, default=100,
                         help='batch size per GPU')
@@ -350,9 +375,6 @@ if __name__ == '__main__':
     parser.add_argument('--num_latent_scales', type=int, default=1,
                         help='the number of latent scales')
 
-    parser.add_argument('--latent_dims', type=int, default=5,
-                        help='the dimensions of latent scales')
-
     parser.add_argument('--cont_training', action='store_true', default=False,
                         help='This flag enables training from an existing checkpoint.')
 
@@ -362,8 +384,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_vis', action='store_true', default=False,
                         help='This flag enables visualization from collected datasets.')
 
-    parser.add_argument('--model', type=str, default='NAIVE_VAE',
-                        help='choices from NAIVE_VAE and BVAE, PVAE, CVAE')
+    parser.add_argument('--model', type=str, default='finger_gat_embeding_model',
+                        help='choices from finger_gat_embeding_model and ...')
 
     # DDP.
     parser.add_argument('--num_proc_node', type=int, default=1,
