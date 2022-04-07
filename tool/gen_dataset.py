@@ -1,10 +1,13 @@
 import os
 
-READ_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\dataset_v3'
-WRITE_PATH = 'D:\Workspace\Handpose\dataset\\test'
-id_list = ['p0']
-hand_list = ['right']
+READ_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\dataset_fp\\leap'
+WRITE_PATH = 'D:\Workspace\Handpose\dataset\\test_10_wofppred'
+id_list = ['p0_old']
+hand_list = ['left', 'right']
 SAMPLE_PER_HAND = 150
+
+if not os.path.exists(WRITE_PATH):
+    os.makedirs(WRITE_PATH)
 
 index = 0
 for id in id_list:

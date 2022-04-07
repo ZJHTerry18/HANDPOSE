@@ -7,14 +7,16 @@ import os.path as osp
 from tqdm import tqdm
 import cv2
 
-HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1",
-	"1 1 0 0 0", "0 1 1 0 0", 
-	"1 0 1 0 0", "1 0 0 1 0", "1 0 0 0 1", "0 1 0 1 0", "0 1 0 0 1", "0 0 1 1 0", "0 0 0 1 1",
-	"1 1 1 0 0", "0 1 1 1 0", "0 0 1 1 1", 
-	"1 1 0 1 0", "1 0 1 1 0", "1 0 0 1 1", "1 1 0 0 1",
-	"0 1 1 1 1", "1 0 1 1 1",
-	"1 1 0 1 1", "1 1 1 1 0", 
-	"1 1 1 1 1"]
+# HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1",
+# 	"1 1 0 0 0", "0 1 1 0 0", 
+# 	"1 0 1 0 0", "1 0 0 1 0", "1 0 0 0 1", "0 1 0 1 0", "0 1 0 0 1", "0 0 1 1 0", "0 0 0 1 1",
+# 	"1 1 1 0 0", "0 1 1 1 0", "0 0 1 1 1", 
+# 	"1 1 0 1 0", "1 0 1 1 0", "1 0 0 1 1", "1 1 0 0 1",
+# 	"0 1 1 1 1", "1 0 1 1 1",
+# 	"1 1 0 1 1", "1 1 1 1 0", 
+# 	"1 1 1 1 1"]
+HANDPOSE_DICT = ["0 1 0 0 0", "1 1 0 0 0", "0 1 1 0 0", "0 1 0 1 0", "0 1 0 0 1",
+"1 1 1 0 0", "1 1 0 1 0", "1 1 0 0 1", "1 1 1 1 0", "1 1 1 1 1"]
 
 def plot_kp(ax,xp,yp,zp, touch_ind = None, finger_color = 'violet', palm_color = 'blue', linestyle = '-'):
 	finger_dict = {0:7, 1:10, 2:13, 3:16, 4:19}
@@ -278,7 +280,7 @@ def get_skeleton_from_data(data):
 	return e_local, e_global
 
 
-def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_res, e_global_res, show = False, save = False, save_dir = None, save_fig = None):
+def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_res, e_global_res, e_local_res2 = None, e_global_res2 = None, show = False, save = False, save_dir = None, save_fig = None):
 	xp_local_test = e_local_test.T[0].T
 	yp_local_test = e_local_test.T[1].T
 	zp_local_test = e_local_test.T[2].T
@@ -291,6 +293,13 @@ def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_r
 	xp_global_res = e_global_res.T[0].T
 	yp_global_res = e_global_res.T[1].T
 	zp_global_res = e_global_res.T[2].T
+
+	xp_local_res2 = e_local_res2.T[0].T
+	yp_local_res2 = e_local_res2.T[1].T
+	zp_local_res2 = e_local_res2.T[2].T
+	xp_global_res2 = e_global_res2.T[0].T
+	yp_global_res2 = e_global_res2.T[1].T
+	zp_global_res2 = e_global_res2.T[2].T
 
 	touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
 	
@@ -345,6 +354,8 @@ def vis_and_save_result(hand_id, pose_id, e_local_test, e_global_test, e_local_r
 	plot_kp(axtest2,xp_global_test, yp_global_test, zp_global_test, touch_ind)
 	plot_kp(axtest1,xp_local_res, yp_local_res, zp_local_res, touch_ind, linestyle='--')
 	plot_kp(axtest2,xp_global_res, yp_global_res, zp_global_res, touch_ind, linestyle='--')
+	plot_kp(axtest1,xp_local_res2, yp_local_res2, zp_local_res2, touch_ind, linestyle=':', finger_color='green')
+	plot_kp(axtest2,xp_global_res2, yp_global_res2, zp_global_res2, touch_ind, linestyle=':', finger_color='green')
 	plt.axis('on')
 	if show: 
 		plt.show()
