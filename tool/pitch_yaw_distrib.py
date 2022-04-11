@@ -5,18 +5,19 @@ from dataload import load_dataset
 from loguru import logger
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from handmodel import HANDPOSE_DICT
 
-DATA_PATH = '../dataset/train'
+DATA_PATH = '../dataset/test_10'
 
-NUM_POSE = 26
-HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1",
-	"1 1 0 0 0", "0 1 1 0 0", 
-	"1 0 1 0 0", "1 0 0 1 0", "1 0 0 0 1", "0 1 0 1 0", "0 1 0 0 1", "0 0 1 1 0", "0 0 0 1 1",
-	"1 1 1 0 0", "0 1 1 1 0", "0 0 1 1 1", 
-	"1 1 0 1 0", "1 0 1 1 0", "1 0 0 1 1", "1 1 0 0 1",
-	"0 1 1 1 1", "1 0 1 1 1",
-	"1 1 0 1 1", "1 1 1 1 0", 
-	"1 1 1 1 1"]
+NUM_POSE = 10
+# HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1",
+# 	"1 1 0 0 0", "0 1 1 0 0", 
+# 	"1 0 1 0 0", "1 0 0 1 0", "1 0 0 0 1", "0 1 0 1 0", "0 1 0 0 1", "0 0 1 1 0", "0 0 0 1 1",
+# 	"1 1 1 0 0", "0 1 1 1 0", "0 0 1 1 1", 
+# 	"1 1 0 1 0", "1 0 1 1 0", "1 0 0 1 1", "1 1 0 0 1",
+# 	"0 1 1 1 1", "1 0 1 1 1",
+# 	"1 1 0 1 1", "1 1 1 1 0", 
+# 	"1 1 1 1 1"]
 
 def plot_hist(x, xtype, bins, ranges):
     plt.figure()
@@ -34,6 +35,7 @@ if __name__ == "__main__":
     for x in dataset:
         pose_id = int(x[0][0])
         touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
+        # touch_ind = [0] if HANDPOSE_DICT[pose_id].split()[0] == '1' else []
         for i in touch_ind:
             pitch = x[ind[i]][0]
             yaw = x[ind[i]][1]

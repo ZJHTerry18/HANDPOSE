@@ -21,12 +21,12 @@ from tool.dataload import load_dataset
 # HANDPOSE_DICT = ["0 1 0 0 0", "1 1 0 0 0", "0 1 1 0 0", "0 1 0 1 0", "0 1 0 0 1",
 # "1 1 1 0 0", "1 1 0 1 0", "1 1 0 0 1", "1 1 1 1 0", "1 1 1 1 1"]
 DATASET_PATH = '../dataset/train_10'
-DATA_PATH = '../dataset/test_10_wofppred'
+DATA_PATH = '../dataset/test_10_2'
 NUM_POSE = 10
 K = 20
 METRIC = 'aL1'
-WRITE_RESULT = False
-SAVE_DIR = osp.join('..', 'results', '_'.join(['holzknn', str(K), METRIC]))
+WRITE_RESULT = True
+SAVE_DIR = osp.join('..', 'results', '_'.join(['holzknn2', str(K), METRIC]))
 
 # def load_data(path, datafile):
 #     with open(osp.join(path, datafile), 'r') as f:
