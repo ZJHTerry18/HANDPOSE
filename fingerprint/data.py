@@ -7,8 +7,8 @@ import copy
 import torch
 from tqdm import tqdm
 
-LOAD_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\\anglepredict\\fingerprint_type'
-NUM_POSE = 10
+LOAD_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\\dataset_fptype\\fingerprint_single'
+NUM_POSE = 13
 IMS_PER_POSE = 150
 N = 5
 

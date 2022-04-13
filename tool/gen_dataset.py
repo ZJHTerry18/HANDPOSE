@@ -1,9 +1,9 @@
 import os
 
-READ_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\dataset_fp\\leap'
-WRITE_PATH = 'D:\Workspace\Handpose\dataset\\test_10_wofppred'
-id_list = ['p0_old']
-hand_list = ['left', 'right']
+READ_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\dataset_fptype\leap'
+WRITE_PATH = 'D:\Workspace\HANDPOSE\dataset\\test_type'
+id_list = ['p0_fp']
+hand_list = ['left','right']
 SAMPLE_PER_HAND = 150
 
 if not os.path.exists(WRITE_PATH):

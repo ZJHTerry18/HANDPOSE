@@ -7,51 +7,22 @@ from tqdm import tqdm
 from loguru import logger
 import os.path as osp
 import math
-from tool.handmodel import vis_and_save_result, save_video, get_skeleton_from_data, HANDPOSE_DICT
+from config import cfg
+from tool.handmodel import vis_and_save_result, save_video, get_skeleton_from_data
 from tool.dataload import load_dataset
+from loss import eloss, loss_stat
 
-# HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1",
-# 	"1 1 0 0 0", "0 1 1 0 0", 
-# 	"1 0 1 0 0", "1 0 0 1 0", "1 0 0 0 1", "0 1 0 1 0", "0 1 0 0 1", "0 0 1 1 0", "0 0 0 1 1",
-# 	"1 1 1 0 0", "0 1 1 1 0", "0 0 1 1 1", 
-# 	"1 1 0 1 0", "1 0 1 1 0", "1 0 0 1 1", "1 1 0 0 1",
-# 	"0 1 1 1 1", "1 0 1 1 1",
-# 	"1 1 0 1 1", "1 1 1 1 0", 
-# 	"1 1 1 1 1"]
-# HANDPOSE_DICT = ["0 1 0 0 0", "1 1 0 0 0", "0 1 1 0 0", "0 1 0 1 0", "0 1 0 0 1",
-# "1 1 1 0 0", "1 1 0 1 0", "1 1 0 0 1", "1 1 1 1 0", "1 1 1 1 1"]
-DATASET_PATH = '../dataset/train_10'
-DATA_PATH = '../dataset/test_10_2'
-NUM_POSE = 10
+
+HANDPOSE_DICT = cfg.HANDPOSE_DICT
+NUM_POSE = cfg.NUM_POSE
+DATASET_PATH = '../dataset/train_type'
+DATA_PATH = '../dataset/test_type'
 K = 20
 METRIC = 'aL1'
+LOSS_TYPE = 1 # 0: EPE 1:EPE_v
+SAVE_FIGURE = False
 WRITE_RESULT = True
-SAVE_DIR = osp.join('..', 'results', '_'.join(['holzknn2', str(K), METRIC]))
-
-# def load_data(path, datafile):
-#     with open(osp.join(path, datafile), 'r') as f:
-#         lines = f.readlines()
-#     dat = []
-#     title = datafile[:-4].split('_')
-#     title = [float(x) for x in title]
-#     dat.append(title)
-#     for line in lines[2:]:
-#         line = line.rstrip('\n').split()
-#         line = [float(x) for x in line]
-#         while len(line) < 3:
-#             line.append(0.0)
-#         dat.append(line)
-#     return np.array(dat)
-
-
-# def load_dataset(path):
-#     datafile_list = os.listdir(path)
-#     dataset = []
-#     logger.info('Loading dataset...')
-#     for datafile in tqdm(datafile_list):
-#         dat = load_data(path, datafile)
-#         dataset.append(dat)
-#     return dataset
+SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknn', str(K), METRIC]))
 
 def softmax(x):
     x = x - np.max(x)
@@ -235,63 +206,16 @@ if __name__ == "__main__":
         e_test_local, e_test_global = get_skeleton_from_data(test_data)
         e_pred_local, e_pred_global = get_skeleton_from_data(pred)
         e_pred2_local, e_pred2_global = get_skeleton_from_data(pred_def)
-        lossval = loss(e_test_local, e_pred2_local, touch_ind, all=False)
+        lossval = eloss(e_test_local, e_pred2_local, touch_ind, all=(LOSS_TYPE == 0))
         losses[hand_id * NUM_POSE + pose_id].append(lossval)
         all_losses.append(lossval)
         angle_lossval = angle_loss(test_data, pred_def, touch_ind)
         angle_losses[hand_id * NUM_POSE + pose_id].append(angle_lossval)
         all_angle_losses.append(angle_lossval)
 
-        save_figname = '_'.join([str(pose_id).zfill(2), str(hand_id), str(seq).zfill(3)]) + '.jpg'
-        vis_and_save_result(hand_id, pose_id, e_test_local, e_test_global, e_pred_local, e_pred_global, 
-            e_pred2_local, e_pred2_global, show=False, save=False, save_dir=SAVE_DIR, save_fig=save_figname)
+        if SAVE_FIGURE:
+            save_figname = '_'.join([str(pose_id).zfill(2), str(hand_id), str(seq).zfill(3)]) + '.jpg'
+            vis_and_save_result(hand_id, pose_id, e_test_local, e_test_global, e_pred_local, e_pred_global, 
+                e_pred2_local, e_pred2_global, show=False, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
     
-    num = np.zeros(2 * NUM_POSE)
-    avg_losses = np.zeros(2 * NUM_POSE)
-    std_losses = np.zeros(2 * NUM_POSE)
-    max_losses = np.zeros(2 * NUM_POSE)
-    min_losses = np.zeros(2 * NUM_POSE)
-    avg_pitch_losses = np.zeros(2 * NUM_POSE)
-    std_pitch_losses = np.zeros(2 * NUM_POSE)
-    avg_yaw_losses = np.zeros(2 * NUM_POSE)
-    std_yaw_losses = np.zeros(2 * NUM_POSE)
-    avg_roll_losses = np.zeros(2 * NUM_POSE)
-    std_roll_losses = np.zeros(2 * NUM_POSE)
-    for i in range(2 * NUM_POSE):
-        num[i] = len(losses[i])
-        avg_losses[i] = np.average(np.array(losses[i])) * 10.0
-        std_losses[i] = np.std(np.array(losses[i])) * 10.0
-        max_losses[i] = np.max(np.array(losses[i])) * 10.0
-        min_losses[i] = np.min(np.array(losses[i])) * 10.0
-
-        avg_anglelosses = np.average(np.array(angle_losses[i]), axis=0)
-        std_anglelosses = np.std(np.array(angle_losses[i]), axis=0)
-        avg_pitch_losses[i] = avg_anglelosses[0]
-        avg_yaw_losses[i] = avg_anglelosses[1]
-        avg_roll_losses[i] = avg_anglelosses[2]
-        std_pitch_losses[i] = std_anglelosses[0]
-        std_yaw_losses[i] = std_anglelosses[1]
-        std_roll_losses[i] = std_anglelosses[2]
-        logger.info('Prediction %d\n data amount: %d\naverage loss:%.4f  std loss:%.4f  max loss:%.4f  min loss:%.4f\n' \
-            'avg pitch err:%.4f  avg yaw err:%.4f  avg roll err:%.4f\nstd pitch err:%.4f  std yaw err:%.4f  std roll err:%.4f' % 
-            (i, num[i], avg_losses[i], std_losses[i], max_losses[i], min_losses[i], 
-            avg_pitch_losses[i], avg_yaw_losses[i], avg_roll_losses[i], std_pitch_losses[i], std_yaw_losses[i], std_roll_losses[i]))
-    
-    avg_loss = np.average(np.array(all_losses)) * 10.0
-    std_loss = np.std(np.array(all_losses)) * 10.0
-    avg_angle_loss = np.average(np.array(all_angle_losses), axis=0)
-    std_angle_loss = np.std(np.array(all_angle_losses), axis=0)
-    logger.info('Total:\naverage loss:%.4f  std loss:%.4f\navg pitch loss:%.4f  avg yaw loss:%.4f  avg roll loss:%.4f\n' \
-        'std pitch loss:%.4f  std yaw loss:%.4f  std roll loss:%.4f' 
-        % (avg_loss, std_loss, avg_angle_loss[0], avg_angle_loss[1], avg_angle_loss[2], std_angle_loss[0], std_angle_loss[1], std_angle_loss[2]))
-    if WRITE_RESULT:
-        with open(osp.join(SAVE_DIR, 'result.csv'), 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(["pose", "data amount", "average loss", "std loss", "max loss", "min loss"])
-            for i in range(2 * NUM_POSE):
-                writer.writerow([i, num[i], avg_losses[i], std_losses[i], max_losses[i], min_losses[i]])
-            writer.writerow(["total data amount", "total average loss", "total std loss"])
-            writer.writerow([np.sum(num), avg_loss, std_loss])
-    
-    # save_video(SAVE_DIR, osp.join(SAVE_DIR, 'output.mp4'))
-    
+    loss_stat(NUM_POSE, all_losses, losses, all_angle_losses, angle_losses, WRITE_RESULT, SAVE_DIR)

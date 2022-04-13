@@ -1,3 +1,5 @@
+import sys
+sys.path.append('..')
 from json import load
 import os
 import numpy as np
@@ -5,19 +7,11 @@ from dataload import load_dataset
 from loguru import logger
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from handmodel import HANDPOSE_DICT
+from config import cfg
 
-DATA_PATH = '../dataset/test_10'
-
-NUM_POSE = 10
-# HANDPOSE_DICT = ["1 0 0 0 0", "0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1",
-# 	"1 1 0 0 0", "0 1 1 0 0", 
-# 	"1 0 1 0 0", "1 0 0 1 0", "1 0 0 0 1", "0 1 0 1 0", "0 1 0 0 1", "0 0 1 1 0", "0 0 0 1 1",
-# 	"1 1 1 0 0", "0 1 1 1 0", "0 0 1 1 1", 
-# 	"1 1 0 1 0", "1 0 1 1 0", "1 0 0 1 1", "1 1 0 0 1",
-# 	"0 1 1 1 1", "1 0 1 1 1",
-# 	"1 1 0 1 1", "1 1 1 1 0", 
-# 	"1 1 1 1 1"]
+DATA_PATH = '../dataset/test_type'
+HANDPOSE_DICT = cfg.HANDPOSE_DICT
+NUM_POSE = cfg.NUM_POSE
 
 def plot_hist(x, xtype, bins, ranges):
     plt.figure()
