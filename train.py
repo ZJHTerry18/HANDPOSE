@@ -206,7 +206,8 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             lr = args.learning_rate * float(global_step) / warmup_iters
             for param_group in cnn_optimizer.param_groups:
                 param_group['lr'] = lr
-        # cnn_optimizer.zero_grad()
+        
+        cnn_optimizer.zero_grad()
         with autocast():
             # x_input = torch.permute(x, (0,2,1)) # B,C,L
             org_angle = torch.atan2(x[...,0], x[...,1])

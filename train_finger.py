@@ -17,6 +17,7 @@ from thirdparty.adamax import Adamax
 from torch.cuda.amp import autocast, GradScaler
 
 from hand_model_vis import vis
+from transfer_cordinate import angle2cord
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -46,8 +47,10 @@ def frange_cycle_linear(n_iter, start=0.0, stop=1.0,  n_cycle=1, ratio=0.7): # i
     return L 
 
 def get_optimizer(args, model):
+    vae_paras_list = []
     for params in model.gat_vae.parameters():
-        params.requires_grad = False
+        # params.requires_grad = False
+        vae_paras_list.append(params.detach().clone())
     if args.fast_adamax:
         cnn_optimizer = Adamax(filter(lambda p: p.requires_grad, model.parameters()), args.learning_rate,
                                weight_decay=args.weight_decay, eps=1e-3)
@@ -55,7 +58,7 @@ def get_optimizer(args, model):
         cnn_optimizer = torch.optim.Adamax(filter(lambda p: p.requires_grad, model.parameters()), args.learning_rate,
                                            weight_decay=args.weight_decay, eps=1e-3)
 
-    return model, cnn_optimizer
+    return model, cnn_optimizer, vae_paras_list
 
 def main(args):
     # ensures that weight initializations are all the same
@@ -96,12 +99,12 @@ def main(args):
     # set the model paras
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     # model = NAIVE_VAE(1,20,5,device) # TODO: using the fixed number, latent related with the cond vector
-    gat_file = 'gat_flat/best_model.pt' # flat or curl
+    gat_file = 'gat_new_model/checkpoint.pt' # flat or curl
     model = eval(args.model)(args, gat_file = gat_file, device=device) # input length, latent, hidden, headers
     model = model.cuda()
     logging.info('param size = %fM ', utils.count_parameters_in_M(model)) # counting the size
 
-    model, cnn_optimizer = get_optimizer(args, model)
+    model, cnn_optimizer, vae_paralist = get_optimizer(args, model)
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         cnn_optimizer, float(args.epochs - args.warmup_epochs - 1), eta_min=args.learning_rate_min)
     
@@ -124,8 +127,8 @@ def main(args):
         global_step, init_epoch = 0, 0
 
     # generate the beta paras via epochs
-    # VPP = args.batch_size / len(train_dataset)
-    # beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=5, ratio=0.7) # set the cyclic rounds
+    VPP = 0.01
+    beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=4, ratio=0.7) # set the cyclic rounds
     if args.sample:
         validate_vis(valid_queue, best_file, model)
         exit()
@@ -139,10 +142,10 @@ def main(args):
                 cnn_scheduler.step() # 
             # Logging.
             logging.info('epoch %d', epoch)
-            # beta = beta_collects[epoch]
+            beta = beta_collects[epoch]
             # set the constant beta
             # beta = 1
-            global_step = train(train_queue, model, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging)
+            global_step = train(train_queue, vae_paralist, beta, model, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging, device)
             # prepare the eval
             model.eval() 
             eval_freq = 15
@@ -178,11 +181,14 @@ def sample_vis(model, checkpoint_file, num=10, var_ = 1):
 # validation : using the validate images for 1. generate the posible poses and sample from the vae latent space; 2. visualization by the MANO or others
 
 
-def train(train_queue, model, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging): # temporally not using the grad scaling
+def train(train_queue, vae_paralist, beta, model, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging, device): # temporally not using the grad scaling
     # nelbo = utils.AvgrageMeter()
     KL_loss = utils.AvgrageMeter()
     reconstruction_loss = utils.AvgrageMeter()
-    # contact_loss_c = utils.AvgrageMeter() 
+    touch_loss = utils.AvgrageMeter()
+    gat_loss = utils.AvgrageMeter() 
+    feature_dist_loss = utils.AvgrageMeter()
+    para_dist_loss = utils.AvgrageMeter()
     Total_loss = utils.AvgrageMeter()
     model.train()
     
@@ -206,19 +212,46 @@ def train(train_queue, model, cnn_optimizer, global_step, grad_scalar, warmup_it
         with autocast():
             # input the angle
             input_angle = ang / np.pi # norm [-pi, pi] to [-1,1]
-            recovered_data, kl_loss = model(images, centers, types, input_angle)
+            recovered_data, feature_dist, gat_recov, kl_loss = model(images, centers, types, input_angle)
             # calulate the KL and re loss
             loss = 0
-            loss += kl_loss
+            loss += beta * kl_loss
             recovered_data = recovered_data * np.pi # scale [-1,1] to [-pi, pi]
-            # cos loss
-            # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang)) # decoder needs to output probs, 
-            # angle_loss = torch.mean(angle_loss)
+            gat_recov = gat_recov * np.pi
             # l2 loss
-            angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
-            loss += angle_loss
+            rec_cor = angle2cord(recovered_data.to(torch.float), device)
+            gat_cor = angle2cord(gat_recov.to(torch.float), device)
+            org_cor = angle2cord(orig_ang, device)
+            cor_loss = torch.sum(torch.norm(rec_cor - org_cor, dim=-1, p=2)) / (15 * rec_cor.shape[0])
+            ## process the mask for touched finger
+            refer_indx = torch.tensor([[0,0,0,0],[0,1,6,7],[2,8,9,10],[3,11,12,13],[4,14,15,16],[5,17,18,19]]).to(device).unsqueeze(0).repeat(ang.shape[0],1,1)
+            org_idx = (types + 1).repeat(1,1,refer_indx.shape[-1])
+            new_idx = torch.gather(refer_indx, dim=1, index=org_idx.to(torch.int64))
+            mask = torch.zeros(ang.shape[0], 5, 20).to(device)
+            ones_fill = torch.ones(ang.shape[0], 5, 20).to(device)
+            new_mask = torch.scatter(input = mask, dim=-1, index = new_idx, src=ones_fill)
+            new_mask = torch.sum(new_mask, dim=1) > 0
+            new_mask[:,0] = False
+            total_cal_num = torch.sum(new_mask)
+            cor_touched_loss = torch.sum(torch.norm(rec_cor - org_cor, dim=-1, p=2) * new_mask) / total_cal_num
+            cor_gat_loss = torch.sum(torch.norm(gat_cor - org_cor, dim=-1, p=2)) / (15 * rec_cor.shape[0])
+            # angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
+            loss += cor_loss + cor_gat_loss + feature_dist + 10 * cor_touched_loss
+            # para dist
+            terms_num = len(vae_paralist)
+            para_loss = 0
+            for idx,params in enumerate(model.gat_vae.parameters()):
+                # params.requires_grad = False
+                target = vae_paralist[idx]
+                para_loss += torch.norm(params - target, p=1)
+            para_loss = 0.1 * para_loss / terms_num # add one regularization term
+            loss += para_loss
             KL_loss.update(kl_loss.item())
-            reconstruction_loss.update(angle_loss.item())
+            reconstruction_loss.update(cor_loss.item())
+            touch_loss.update(cor_touched_loss.item())
+            gat_loss.update(cor_gat_loss.item())
+            feature_dist_loss.update(feature_dist.item())
+            para_dist_loss.update(para_loss.item())
             Total_loss.update(loss.item())
 
         grad_scalar.scale(loss).backward()
@@ -235,27 +268,32 @@ def train(train_queue, model, cnn_optimizer, global_step, grad_scalar, warmup_it
         if (global_step + 1) % 100 == 0:
             # norm
             writer.add_scalar('train/loss', loss, global_step)
-            writer.add_scalar('train/re_loss', angle_loss, global_step)
+            writer.add_scalar('train/re_loss', cor_loss, global_step)
+            writer.add_scalar('train/touch_loss', cor_touched_loss, global_step)
             writer.add_scalar('train/kl_loss', kl_loss, global_step)
-            # writer.add_scalar('train/contact_loss', contact_loss, global_step)
-            # writer.add_scalar('train/beta', beta, global_step)
+            writer.add_scalar('train/feature_loss', feature_dist, global_step)
+            writer.add_scalar('train/para_loss', para_loss, global_step)
+            writer.add_scalar('train/beta', beta, global_step)
             logging.info('train %d: the total loss is %f', global_step, Total_loss.avg)
-            # logging.info('The beta is %f', beta)
+            logging.info('The beta is %f', beta)
             logging.info('The kl loss is %f', KL_loss.avg)
             logging.info('The re loss is %f', reconstruction_loss.avg)
-            # logging.info('The con loss is %f', contact_loss_c.avg)
+            logging.info('The touch loss is %f', touch_loss.avg)
+            logging.info('The feature loss is %f', feature_dist_loss.avg)
+            logging.info('The para loss is %f', para_dist_loss.avg)
         
         global_step += 1
 
     return global_step
 
 
-def test(valid_queue, model, args, logging, writer, global_step):
+def test(valid_queue, model, args, logging, writer, global_step, device=torch.device('cuda')):
     if args.distributed:
         dist.barrier()
     vali_rel = utils.AvgrageMeter()
     vali_total = utils.AvgrageMeter()
-    # vali_con = utils.AvgrageMeter()
+    vali_angle = utils.AvgrageMeter()
+    vali_touch = utils.AvgrageMeter()
     model.eval()
     for step, data in enumerate(valid_queue):
         images, finger_ang, centers, types, cond = data
@@ -270,26 +308,43 @@ def test(valid_queue, model, args, logging, writer, global_step):
         types = types.cuda()
         with torch.no_grad():
             input_angle = ang / np.pi
-            recovered_data, kl_loss = model(images, centers, types, input_angle)
+            recovered_data, feature_dist, gat_recov, kl_loss = model(images, centers, types, input_angle)
             # calulate the KL and re loss
             loss = 0
             loss += kl_loss
             recovered_data = recovered_data * np.pi
             # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
             # angle_loss = torch.mean(angle_loss) # do not times the curl weight
+            rec_cor = angle2cord(recovered_data.to(torch.float), device)
+            org_cor = angle2cord(orig_ang, device)
+            cor_loss = torch.sum(torch.norm(rec_cor - org_cor, dim=-1, p=2)) / (15 * rec_cor.shape[0])
+
+            refer_indx = torch.tensor([[0,0,0,0],[0,1,6,7],[2,8,9,10],[3,11,12,13],[4,14,15,16],[5,17,18,19]]).to(device).unsqueeze(0).repeat(ang.shape[0],1,1)
+            org_idx = (types + 1).repeat(1,1,refer_indx.shape[-1])
+            new_idx = torch.gather(refer_indx, dim=1, index=org_idx.to(torch.int64))
+            mask = torch.zeros(ang.shape[0], 5, 20).to(device)
+            ones_fill = torch.ones(ang.shape[0], 5, 20).to(device)
+            new_mask = torch.scatter(input = mask, dim=-1, index = new_idx, src=ones_fill)
+            new_mask = torch.sum(new_mask, dim=1) > 0
+            new_mask[:,0] = False
+            total_cal_num = torch.sum(new_mask)
+            cor_touched_loss = torch.sum(torch.norm(rec_cor - org_cor, dim=-1, p=2) * new_mask) / total_cal_num
+
             angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1))
-            loss += angle_loss
-            vali_rel.update(angle_loss.item())
+            loss += cor_loss
+            vali_rel.update(cor_loss.item())
             vali_total.update(loss.item())
+            vali_angle.update(angle_loss.item())
+            vali_touch.update(cor_touched_loss.item())
 
     if args.distributed:
         # block to sync
         dist.barrier()
-    logging.info('val, step: %d, Total: %f, Reconstraction %f', step, vali_total.avg, vali_rel.avg)
+    logging.info('val, step: %d, Total: %f, Reconstraction %f, touch %f, angle %f', step, vali_total.avg, vali_rel.avg, vali_touch.avg ,vali_angle.avg)
     writer.add_scalar('train/vali_re', torch.tensor(vali_rel.avg), global_step)
     return vali_rel.avg
 
-def validate_vis(valid_queue, load_file, model, gap = 10):
+def validate_vis(valid_queue, load_file, model, gap = 10, device=torch.device('cuda')):
     checkpoint = torch.load(load_file, map_location='cpu')
     model.load_state_dict(checkpoint['state_dict'])
     model = model.cuda()
@@ -311,13 +366,18 @@ def validate_vis(valid_queue, load_file, model, gap = 10):
             types = types.cuda()
             with torch.no_grad():
                 input_angle = ang / np.pi
-                recovered_data, kl_loss = model(images, centers, types, input_angle)
+                recovered_data, feature_dist, gat_recov, kl_loss = model(images, centers, types, input_angle)
                 # calulate the KL and re loss
                 loss = 0
                 loss += kl_loss
                 recovered_data = recovered_data * np.pi
                 # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
                 # angle_loss = torch.mean(angle_loss) # do not times the curl weight
+
+                # rec_cor = angle2cord(recovered_data.to(torch.float), device)
+                # org_cor = angle2cord(orig_ang, device)
+                # cor_loss = torch.sum(torch.norm(rec_cor - org_cor, dim=-1, p=2)) / (15 * rec_cor.shape[0])
+
                 angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1))
                 vis_gt_ang.append(orig_ang)
                 vis_pred_ang.append(recovered_data)
@@ -329,8 +389,8 @@ def validate_vis(valid_queue, load_file, model, gap = 10):
     vis_gt_ang = vis_gt_ang.cpu().numpy()
     vis_pred_ang = vis_pred_ang.cpu().numpy()
     contact_info = cond_list.cpu().numpy()
-    vis(vis_gt_ang, contact_info,'vis_gt_finger_flat/')
-    vis(vis_pred_ang, contact_info,'vis_pred_finger_flat/')
+    # vis(vis_gt_ang, 'vis_gt_finger/')
+    vis(vis_pred_ang, 'vis_pred_finger_at/')
 
 def print_para(model):
     for name, paras in model.named_parameters():
@@ -402,7 +462,7 @@ if __name__ == '__main__':
                         help='address for master')
     parser.add_argument('--port', type=str, default='10000',
                         help='address for master')
-    parser.add_argument('--seed', type=int, default=1,
+    parser.add_argument('--seed', type=int, default=42,
                         help='seed used for initialization')
     args = parser.parse_args()
     utils.create_exp_dir(args.save) # create folder

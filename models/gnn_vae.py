@@ -66,8 +66,8 @@ class GAT_VAE(nn.Module):
         self.pcp_embed_logl = nn.Sequential(nn.Linear(self.latent_dims * self.nodes_num, self.latent_dims * self.nodes_num // 2, bias=True), self.dropout, Swish(),\
             nn.Linear(self.latent_dims * self.nodes_num // 2, self.latent_dims, bias=True), Swish())
 
-        self.hidden_decode = nn.Sequential(nn.Linear(self.latent_dims, self.latent_dims), Swish(),\
-                            nn.Linear(self.latent_dims, 5), nn.Sigmoid()) # TODO: it may be the other forms
+        # self.hidden_decode = nn.Sequential(nn.Linear(self.latent_dims, self.latent_dims), Swish(),\
+        #                     nn.Linear(self.latent_dims, 5), nn.Sigmoid()) # TODO: it may be the other forms
         # self.middle_devode = nn.Sequential(nn.Linear(self.latent_dims, 1), nn.Sigmoid()) # useful or not , this is for decoded PCP joint
         
         self.vae_PCP = nn.ModuleList()
@@ -146,8 +146,10 @@ class GAT_VAE(nn.Module):
         kl_loss += 0.5 * torch.mean(torch.sum(root_mu ** 2 + root_sigma ** 2 - root_logl - 1, dim=-1))
         seed = torch.randn_like(root_sigma).to(self.device)
         sample_root = root_mu + seed * root_sigma
+
         # contact_info = self.hidden_decode(sample_root) # only one is not good
-        contact_info = self.hidden_decode(root_sigma)
+        # contact_info = self.hidden_decode(root_sigma)
+
         # VAE part modification  
         root_feature = torch.cat([sample_root.unsqueeze(-2), self.hidden_representation.repeat(batch_size,1,1)], dim = -2)
         reconstruct_features = []
@@ -181,8 +183,8 @@ class GAT_VAE(nn.Module):
             reconstruction_angle.append(self.node_decode[l](reconstruct_features[l]))
         reconstruction_angle = torch.cat(reconstruction_angle, dim=-1)
 
-        contact_info = torch.cat([1-contact_info.unsqueeze(-2), contact_info.unsqueeze(-2)], dim=-2)
-        return reconstruction_angle, contact_info, kl_loss, root_mu, root_logl # add two output
+        # contact_info = torch.cat([1-contact_info.unsqueeze(-2), contact_info.unsqueeze(-2)], dim=-2) 
+        return reconstruction_angle, kl_loss, root_mu, root_logl # add two output contact_info,
         
     def _get_encoder(self, dim_l):
         # set the mlp network # set it as the fix
@@ -207,8 +209,8 @@ class GAT_VAE(nn.Module):
     
     def sample_generation(self, gen_num=10, var_=1):
         root_sample = torch.randn(gen_num, self.latent_dims).to(self.device) * var_
-        contact_info = self.hidden_decode(root_sample)
-        contact_info = torch.round(contact_info) #    
+        # contact_info = self.hidden_decode(root_sample)
+        # contact_info = torch.round(contact_info) #    
         root_feature = torch.cat([root_sample.unsqueeze(-2), self.hidden_representation.repeat(gen_num,1,1)], dim = -2)
         reconstruct_features = []
         PCP_vae_c = []
@@ -238,12 +240,12 @@ class GAT_VAE(nn.Module):
             reconstruction_angle.append(self.node_decode[l](reconstruct_features[l]))
         reconstruction_angle = torch.cat(reconstruction_angle, dim=-1)
 
-        return reconstruction_angle, contact_info
+        return reconstruction_angle #, contact_info
 
     def _decode_part(self, root_sample):
         batch_size = root_sample.shape[0]
-        contact_info = self.hidden_decode(root_sample)
-        contact_info = torch.round(contact_info) #    
+        # contact_info = self.hidden_decode(root_sample)
+        # contact_info = torch.round(contact_info) #    
         root_feature = torch.cat([root_sample.unsqueeze(-2), self.hidden_representation.repeat(batch_size,1,1)], dim = -2)
         reconstruct_features = []
         PCP_vae_c = []
@@ -273,7 +275,7 @@ class GAT_VAE(nn.Module):
             reconstruction_angle.append(self.node_decode[l](reconstruct_features[l]))
         reconstruction_angle = torch.cat(reconstruction_angle, dim=-1)
 
-        return reconstruction_angle, contact_info
+        return reconstruction_angle #, contact_info
 
 
 if __name__ == '__main__':

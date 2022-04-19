@@ -175,11 +175,14 @@ class finger_gat_embeding_model(nn.Module):
         self.feature_fusing = nn.Sequential(nn.Linear(init_feature_dims + 2, init_feature_dims, bias=True), Swish())
         # gat embedding initialization
         ## set the placeholder for the input of gat embedding
+        self.dropout = nn.Dropout(0.2)
         self.finger_repre = nn.Parameter(torch.randn(1,5,init_feature_dims).to(device), requires_grad=True) # 5 finger t, i, m, r, p
         encoder_layer = TransformerEncoderLayer(d_model=init_feature_dims, nhead=4, batch_first=True) # batch, seq, feature_dims
         self.feature_encoder = TransformerEncoder(encoder_layer, num_layers=2) # TODO: just set 2 layers
-        self.embed_mu = nn.Sequential(nn.Linear(5 * init_feature_dims, args.latent_dims, bias=True), Swish()) # squish and embed
-        self.embed_logl = nn.Sequential(nn.Linear(5 * init_feature_dims, args.latent_dims, bias=True), Swish())
+        self.embed_mu = nn.Sequential(nn.Linear(5 * init_feature_dims, init_feature_dims, bias=True), self.dropout, Swish(),\
+            nn.Linear(init_feature_dims, init_feature_dims // 2, bias=True), self.dropout, Swish(),\
+                nn.Linear(init_feature_dims // 2, args.latent_dims, bias=True),  Swish()) # squish and embed
+        # self.embed_logl = nn.Sequential(nn.Linear(5 * init_feature_dims, args.latent_dims, bias=True), Swish())
       
         
     # def _get_covnet(self):
@@ -216,18 +219,19 @@ class finger_gat_embeding_model(nn.Module):
         cross_feature_c = [cross_feature[:,k, :] for k in range(5)]
         cross_feature_c = torch.cat(cross_feature_c, dim=-1)
         finger_mu = self.embed_mu(cross_feature_c)
-        finger_logl = self.embed_logl(cross_feature_c)
-        finger_sigma = torch.exp(0.5* finger_logl)
-        seed = torch.randn_like(finger_sigma).to(self.device)
-        sample_finger = finger_mu + seed * finger_sigma
-        finger_reconstruct,_ = self.gat_vae._decode_part(sample_finger)
+        # finger_logl = self.embed_logl(cross_feature_c)
+        # finger_sigma = torch.exp(0.5* finger_logl)
+        # seed = torch.randn_like(finger_sigma).to(self.device)
+        # sample_finger = finger_mu + seed * finger_sigma
+        finger_reconstruct = self.gat_vae._decode_part(finger_mu)
         # run the gat net
-        gat_reconstruct, _,_, gat_mu,gat_logl = self.gat_vae(motions)
-        gat_sigma = torch.exp(0.5* gat_logl)
+        gat_reconstruct, kl_loss, gat_mu, gat_logl = self.gat_vae(motions)
+        # gat_sigma = torch.exp(0.5* gat_logl)
         # calculate the KL distance between finger and gat gaussian distribution
-        kl_loss = 0.5 * torch.mean(torch.sum((finger_mu - gat_mu) ** 2 + (finger_sigma/gat_sigma) ** 2 - torch.log((finger_sigma/gat_sigma) ** 2) - 1, dim=-1))
+        # kl_loss = 0.5 * torch.mean(torch.sum((finger_mu - gat_mu) ** 2 + (finger_sigma/gat_sigma) ** 2 - torch.log((finger_sigma/gat_sigma) ** 2) - 1, dim=-1))
+        feature_dist = 0.5 * torch.mean(torch.norm(finger_mu - gat_mu, dim=-1, p=2))
 
-        return finger_reconstruct, kl_loss
+        return finger_reconstruct, feature_dist, gat_reconstruct, kl_loss
 
 
 if __name__ == '__main__': 

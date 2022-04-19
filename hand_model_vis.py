@@ -60,13 +60,13 @@ def plot_kp(ax,xp,yp,zp):
 # args = parser.parse_args()
 
 
-def vis(samples, vis_label, save_dir):
+def vis(samples, save_dir):
     # samples is B, 5, 4
     B = samples.shape[0]
     for b in range(B):
         per_sample = samples[b,...]
-        per_label = vis_label[b,...]
-        title = ','.join(str(int(i)) for i in per_label)
+        # per_label = vis_label[b,...]
+        # title = ','.join(str(int(i)) for i in per_label)
         ### save the result in plt figure
         # save_dir = 'demo_test2_p3\\'
         os.makedirs(save_dir,exist_ok=True)
@@ -208,7 +208,7 @@ def vis(samples, vis_label, save_dir):
         plot_kp(ax,xp, yp, zp)
         plot_kp(ax2,xp, yp, zp)
         save_fig = f'{b:0>3d}.jpg'
-        plt.title(title,fontsize='large',fontweight='bold') 
+        # plt.title(title,fontsize='large',fontweight='bold') 
         plt.savefig(osp.join(save_dir,save_fig))
         plt.close()
 

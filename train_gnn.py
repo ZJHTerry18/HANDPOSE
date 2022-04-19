@@ -120,15 +120,17 @@ def main(args):
 
     # generate the beta paras via epochs
     # VPP = args.batch_size / len(train_dataset)
-    VPP = 0.5
-    beta_collects = frange_cycle_linear(args.epochs, stop = VPP, n_cycle=4, ratio=0.7) # set the cyclic rounds
+    # VPP = 0.01
+    # start = 0.01
+    # stop = 0.1
+    # beta_collects = frange_cycle_linear(args.epochs, start = start, stop = stop, n_cycle=4, ratio=0.7) # set the cyclic rounds
     if args.sample:
         number_s = 50
-        var_ = 10
-        get_samples, contact_info = sample_vis(model,checkpoint_file,number_s, var_) # best or checkpoint
+        var_ = 1
+        get_samples = sample_vis(model,checkpoint_file,number_s, var_) # best or checkpoint
         get_samples = get_samples.cpu().numpy()
-        contact_info = contact_info.cpu().numpy()
-        vis(get_samples, contact_info,'vis_gat_10/')
+        # contact_info = np.random.randint((number_s,5))
+        vis(get_samples, 'vis_large_beta_3/')
         exit()
     else:
         for epoch in range(init_epoch, args.epochs): # start training
@@ -141,7 +143,8 @@ def main(args):
             
             # Logging.
             logging.info('epoch %d', epoch)
-            beta = beta_collects[epoch]
+            # beta = beta_collects[epoch]
+            beta = 0.1 # constant
             # set the constant beta
             # beta = 1
             global_step = train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging, device)
@@ -171,11 +174,11 @@ def sample_vis(model, checkpoint_file, num=10, var_ = 1):
     model = model.cuda()
     model.eval()
     with torch.no_grad():
-        generate_sampling, contact_info = model.sample_generation(num, var_)
+        generate_sampling = model.sample_generation(num, var_)
     # generate_sampling = torch.permute(generate_sampling,(0,2,1))
     generate_angle = generate_sampling * np.pi
     # generate_angle = torch.atan2(generate_sampling[...,0], generate_sampling[...,1])
-    return generate_angle, contact_info
+    return generate_angle
 
 
 def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, warmup_iters, writer, logging, device): # temporally not using the grad scaling
@@ -206,11 +209,11 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # norm [-pi, pi] to [-1,1]
             input_angle = ang / np.pi
             # recovered_data, latent_mu, latent_sigma = model(x_input)
-            recovered_data, contact_info, kl_loss, _, _ = model(input_angle)
+            recovered_data, kl_loss, _, _ = model(input_angle)
             # calulate the KL and re loss
             loss = 0
             loss += beta * kl_loss
-            contact_loss = F.nll_loss(contact_info, cond.to(torch.long)) + 1
+            # contact_loss = F.nll_loss(contact_info, cond.to(torch.long)) + 1
             recovered_data = recovered_data * np.pi # scale [-1,1] to [-pi, pi]
             bn_loss = model.batchnorm_loss()
             # cos loss
@@ -220,13 +223,13 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             # replace the angle loss with the cordinate loss TODO: whether using the angle loss, or not
             rec_cor = angle2cord(recovered_data.to(torch.float), device)
             org_cor = angle2cord(orig_ang, device)
-            cor_loss = torch.mean(torch.norm(rec_cor - org_cor, dim=-1, p=1))
+            cor_loss = torch.sum(torch.norm(rec_cor - org_cor, dim=-1, p=2)) / (15 * rec_cor.shape[0])
             # angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1)) # naive L1 loss
             
-            loss += cor_loss + contact_loss #+ 0.1 * bn_loss
+            loss += cor_loss #+ contact_loss #+ 0.1 * bn_loss
             KL_loss.update(kl_loss.item())
             reconstruction_loss.update(cor_loss.item())
-            contact_loss_c.update(contact_loss.item())
+            # contact_loss_c.update(contact_loss.item())
             Total_loss.update(loss.item())
 
         grad_scalar.scale(loss).backward()
@@ -245,13 +248,13 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
             writer.add_scalar('train/loss', loss, global_step)
             writer.add_scalar('train/re_loss', cor_loss, global_step)
             writer.add_scalar('train/kl_loss', kl_loss, global_step)
-            writer.add_scalar('train/contact_loss', contact_loss, global_step)
+            # writer.add_scalar('train/contact_loss', contact_loss, global_step)
             writer.add_scalar('train/beta', beta, global_step)
             logging.info('train %d: the total loss is %f', global_step, Total_loss.avg)
             logging.info('The beta is %f', beta)
             logging.info('The kl loss is %f', KL_loss.avg)
             logging.info('The re loss is %f', reconstruction_loss.avg)
-            logging.info('The con loss is %f', contact_loss_c.avg)
+            # logging.info('The con loss is %f', contact_loss_c.avg)
         
         global_step += 1
 
@@ -277,19 +280,19 @@ def test(valid_queue, model, args, logging, writer, global_step):
         orig_ang = orig_ang.cuda()
         with torch.no_grad():
             input_angle = ang / np.pi
-            recovered_data, contact_info, kl_loss, _, _ = model(input_angle)
+            recovered_data, kl_loss, _, _ = model(input_angle)
             # calulate the KL and re loss
             loss = 0
             loss += kl_loss
-            contact_loss = F.nll_loss(contact_info, cond.to(torch.long)) + 1
+            # contact_loss = F.nll_loss(contact_info, cond.to(torch.long)) + 1
             recovered_data = recovered_data * np.pi
             # angle_loss = 2 * (1 - torch.cos(recovered_data - orig_ang))
             # angle_loss = torch.mean(angle_loss) # do not times the curl weight
             angle_loss = torch.mean(torch.norm(recovered_data - orig_ang, dim=(-1,-2), p=1))
-            loss += contact_loss + angle_loss
+            loss += angle_loss
             vali_rel.update(angle_loss.item())
             vali_total.update(loss.item())
-            vali_con.update(contact_loss.item())
+            # vali_con.update(contact_loss.item())
             
     if args.distributed:
         # block to sync
@@ -317,7 +320,7 @@ if __name__ == '__main__':
      # optimization
     parser.add_argument('--batch_size', type=int, default=100,
                         help='batch size per GPU')
-    parser.add_argument('--learning_rate', type=float, default=1e-3,
+    parser.add_argument('--learning_rate', type=float, default=1e-4,
                         help='init learning rate')
     parser.add_argument('--learning_rate_min', type=float, default=1e-5,
                         help='min learning rate')
