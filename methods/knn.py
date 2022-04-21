@@ -2,13 +2,13 @@ import sys
 sys.path.append("..")
 import numpy as np
 import os
-import csv
 from tqdm import tqdm
 from loguru import logger
 import os.path as osp
 import math
 from config import cfg
-from tool.handmodel import vis_and_save_result, save_video, get_skeleton_from_data
+from tool.handmodel import get_skeleton_from_data
+from tool.visualize import vis, vis_fp
 from tool.dataload import load_dataset
 from loss import eloss, loss_stat
 
@@ -16,35 +16,48 @@ from loss import eloss, loss_stat
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
 DATASET_PATH = '../dataset/train_type'
-DATA_PATH = '../dataset/test_type'
+DATA_PATH = '../dataset/test_type_wofp'
 K = 20
 METRIC = 'aL1'
 LOSS_TYPE = 1 # 0: EPE 1:EPE_v
-SAVE_FIGURE = False
-WRITE_RESULT = True
-SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknn', str(K), METRIC]))
+SAVE_FIGURE = True
+WRITE_RESULT = False
+SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknnwofp', str(K), METRIC]))
 
 def softmax(x):
     x = x - np.max(x)
     f_x = np.exp(x) / np.sum(np.exp(x))
     return f_x
 
-def kNNsearch(x, dataset, touch_ind, k = 10, metric = 'aL2'):
-    ind = [4,9,14,19,24]
-    yaw_bx = x[ind][touch_ind][0,1]
+def kNNsearch(x0, dataset, touch_ind, k = 20, metric = 'aL1'):
+    x = x0.copy()
+    a_ind = [4,9,14,19,24]
+    p_ind = [5,10,15,20,25]
+    yaw_bx = x[a_ind][touch_ind][0,1]
+    x_bx = x[p_ind][touch_ind][0,0]
+    y_bx = x[p_ind][touch_ind][0,2]
     for i in touch_ind:
-        x[ind[i], 1] -= yaw_bx
+        x[a_ind[i], 1] -= yaw_bx
+        x[p_ind[i], 0] -= x_bx
+        x[p_ind[i], 2] -= y_bx
     best_z = [None] * k
     min_dist = np.array([math.inf] * k)
     for z0 in dataset:
         z = z0.copy()
-        yaw_bz = z[ind][touch_ind][0,1]
+        yaw_bz = z[a_ind][touch_ind][0,1]
+        x_bz = z[p_ind][touch_ind][0,0]
+        y_bz = z[p_ind][touch_ind][0,2]
         for i in touch_ind:
-            z[ind[i], 1] -= yaw_bz
+            z[a_ind[i], 1] -= yaw_bz
+            z[p_ind[i], 0] -= x_bz
+            z[p_ind[i], 2] -= y_bz
         if metric == 'aL2':
-            dist = np.linalg.norm(x[ind][touch_ind] - z[ind][touch_ind])
+            dist = np.linalg.norm(x[a_ind][touch_ind] - z[a_ind][touch_ind])
         elif metric == 'aL1':
-            dist = np.sum(np.abs(x[ind][touch_ind] - z[ind][touch_ind]))
+            wt = 1.0
+            a_dist = np.sum(np.abs(x[a_ind][touch_ind] - z[a_ind][touch_ind]))
+            p_dist = sum([np.sqrt((x[p_ind[i],0] - z[p_ind[i],0]) ** 2 + (x[p_ind[i],2] - z[p_ind[i],2]) ** 2) for i in touch_ind])
+            dist = wt * a_dist  + (1 - wt) * p_dist
 
         # to do: other metrics
         
@@ -57,7 +70,7 @@ def kNNsearch(x, dataset, touch_ind, k = 10, metric = 'aL2'):
     # avg_best_z = np.sum(np.array([best_z[i] * w_arr[i] for i in range(len(w_arr))]), axis=0)
     # print(res)
     avg_best_z = np.average(np.array(best_z), axis=0)
-    avg_best_dist = np.linalg.norm(x[ind][touch_ind] - avg_best_z[ind][touch_ind])
+    avg_best_dist = np.linalg.norm(x[a_ind][touch_ind] - avg_best_z[a_ind][touch_ind])
     if avg_best_dist < np.min(min_dist):
         res = avg_best_z
     else:
@@ -215,7 +228,9 @@ if __name__ == "__main__":
 
         if SAVE_FIGURE:
             save_figname = '_'.join([str(pose_id).zfill(2), str(hand_id), str(seq).zfill(3)]) + '.jpg'
-            vis_and_save_result(hand_id, pose_id, e_test_local, e_test_global, e_pred_local, e_pred_global, 
+            vis(test_data, e_test_local, e_test_global, e_pred_local, e_pred_global, 
                 e_pred2_local, e_pred2_global, show=False, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
+            # save_fpfigname = save_figname[:-4] + 'fp.jpg'
+            # vis_fp(test_data, pred, show=False, save=False, save_dir=SAVE_DIR, save_fig=save_fpfigname)
     
     loss_stat(NUM_POSE, all_losses, losses, all_angle_losses, angle_losses, WRITE_RESULT, SAVE_DIR)

@@ -1,6 +1,7 @@
 import os 
 import os.path as osp
 from tqdm import tqdm
+from glob import glob
 from loguru import logger
 import numpy as np
 
@@ -25,6 +26,7 @@ def load_dataset(path):
     dataset = []
     logger.info('Loading dataset...')
     for datafile in tqdm(datafile_list):
-        dat = load_data(path, datafile)
-        dataset.append(dat)
+        if datafile.endswith('.txt'):
+            dat = load_data(path, datafile)
+            dataset.append(dat)
     return dataset

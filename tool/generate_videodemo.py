@@ -22,9 +22,3 @@ def save_video(img_root, output_path, type = range(26)):
         frame = cv2.imread(os.path.join(img_root, img))
         VideoWriter.write(frame)
     VideoWriter.release()
-
-if __name__ == '__main__':
-    handtype = 'left' if args.hand == 'l' else 'right'
-    imgroot = 'demo_v3_p' + args.id + '_' + handtype
-    videoname = 'output_p' + args.id + '_' + handtype + '.mp4'
-    save_video(img_root=imgroot, output_path='D:\Workspace\LeapMotion\leapHandpose\leapHandpose\dataset_v3\\video_demos\\' + videoname)

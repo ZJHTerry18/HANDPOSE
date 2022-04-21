@@ -9,10 +9,10 @@ from tqdm import tqdm
 
 LOAD_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\\dataset_fptype\\fingerprint_single'
 NUM_POSE = 13
-IMS_PER_POSE = 150
+IMS_PER_POSE = 200
 N = 5
 
-ids = ['p0']
+ids = ['p1']
 hands = ['left', 'right']
 poses = [str(i) for i in range(NUM_POSE)]
 

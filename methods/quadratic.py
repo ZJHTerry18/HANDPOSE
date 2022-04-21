@@ -2,14 +2,14 @@ import sys
 sys.path.append('..')
 import numpy as np
 import os
-from torch import _log_softmax_backward_data
 from tqdm import tqdm
 import copy
 import pickle
 from loguru import logger
 import os.path as osp
 from config import cfg
-from tool.handmodel import vis_and_save_result, save_video, get_skeleton_from_data
+from tool.handmodel import get_skeleton_from_data
+from tool.visualize import vis
 from tool.dataload import load_dataset
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
@@ -20,24 +20,39 @@ NUM_POSE = cfg.NUM_POSE
 TRAIN_PATH = '../dataset/train_type'
 TEST_PATH = '../dataset/test_type'
 LOSS_TYPE = 1
-SAVE_FIGURE = False
-WRITE_RESULT = True
+SAVE_FIGURE = True
+WRITE_RESULT = False
 SAVE_DIR = osp.join('..', 'results', '_'.join(['quad','1','type']))
 TEST_ONLY = False
 MODEL_PATH = '../pkls/quadratic_model.pkl'
 
-finger_ind = [4,9,14,19,24]
 
 def prepare_polyinput(dataset):
+    a_ind = [4,9,14,19,24]
+    p_ind = [5,10,15,20,25]
     num = len(dataset)
-    u = np.zeros((num, 20)) # (p1,p2,...p5,s1,...s5) pi=(pitch_i, yaw_i, roll_i)
+    u = np.zeros((num, 20)) # (p1,p2,...p5,s1,...,s5) pi=(pitch_i, yaw_i, roll_i)
+    # u = np.zeros((num, 30)) # (p1,p2,...p5,s1,...,s5) pi=(pitch_i, yaw_i, roll_i, x_i, y_i)
     y = np.zeros((num, 20)) # (t1,t2,...t5) t_i=(pip_theta,pip_phi,iip_theta,dip_theta)
     for i in range(num):
-        dat = dataset[i]
+        dat = dataset[i].copy()
         pose_id = int(dat[0][0])
         touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
+
+        # standarization
+        yaw_bx = dat[a_ind][touch_ind][0,1]
+        x_bx = dat[p_ind][touch_ind][0,0]
+        y_bx = dat[p_ind][touch_ind][0,2]
         for ti in touch_ind:
-            u[i][ti*3: (ti+1)*3] = dat[finger_ind[ti]] * np.pi / 180.0 # p_i = (0.,0.,0.) if no touch
+            dat[a_ind[ti], 1] -= yaw_bx
+            dat[p_ind[ti], 0] -= x_bx
+            dat[p_ind[ti], 2] -= y_bx
+
+        for ti in touch_ind:
+            u[i][ti*3:(ti+1)*3] = dat[a_ind[ti]] * np.pi / 180.0 # p_i = (0.,0.,0.) if no touch
+            # u[i][ti*5:ti*5+3] = dat[a_ind[ti]] * np.pi / 180.0
+            # u[i][ti*5+3] = dat[a_ind[ti] + 1][0] * 0.01
+            # u[i][ti*5+4] = dat[a_ind[ti] + 1][2] * 0.01
         for j in range(15,20):
             u[i][j] = 1.0 if (j - 15) in touch_ind else 0.0
         
@@ -119,7 +134,7 @@ if __name__ == "__main__":
 
         if SAVE_FIGURE:    
             save_figname = '_'.join([str(pose_id).zfill(2), str(hand_id), str(seq).zfill(3)]) + '.jpg'
-            vis_and_save_result(hand_id, pose_id, e_test_local, e_test_global, e_pred_local, e_pred_global, 
+            vis(dat, e_test_local, e_test_global, e_pred_local, e_pred_global, 
                 None, None, show=False, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
     
     loss_stat(NUM_POSE, all_losses, losses, None, None, WRITE_RESULT, SAVE_DIR)

@@ -21,3 +21,5 @@ HANDPOSEDICT_13 = ["0 1 0 0 0", "0 0 1 0 0", "0 0 0 1 0", "0 0 0 0 1", "1 1 0 0 
 ## general settings
 __C.HANDPOSE_DICT = HANDPOSEDICT_13
 __C.NUM_POSE = 13
+
+__C.FP_IMAGE_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\dataset_fptype\\fingerprint\p1'

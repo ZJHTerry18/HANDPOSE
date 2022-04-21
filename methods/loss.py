@@ -43,10 +43,12 @@ def loss_stat(num_pose, all_losses, losses, all_angle_losses = None, angle_losse
             std_pitch_losses[i] = std_anglelosses[0]
             std_yaw_losses[i] = std_anglelosses[1]
             std_roll_losses[i] = std_anglelosses[2]
-        logger.info('Prediction %d\n data amount: %d\naverage loss:%.4f  std loss:%.4f  max loss:%.4f  min loss:%.4f\n' \
-            'avg pitch err:%.4f  avg yaw err:%.4f  avg roll err:%.4f\nstd pitch err:%.4f  std yaw err:%.4f  std roll err:%.4f' % 
-            (i, num[i], avg_losses[i], std_losses[i], max_losses[i], min_losses[i], 
-            avg_pitch_losses[i], avg_yaw_losses[i], avg_roll_losses[i], std_pitch_losses[i], std_yaw_losses[i], std_roll_losses[i]))
+        # logger.info('Prediction %d\n data amount: %d\naverage loss:%.4f  std loss:%.4f  max loss:%.4f  min loss:%.4f\n' \
+        #     'avg pitch err:%.4f  avg yaw err:%.4f  avg roll err:%.4f\nstd pitch err:%.4f  std yaw err:%.4f  std roll err:%.4f' % 
+        #     (i, num[i], avg_losses[i], std_losses[i], max_losses[i], min_losses[i], 
+        #     avg_pitch_losses[i], avg_yaw_losses[i], avg_roll_losses[i], std_pitch_losses[i], std_yaw_losses[i], std_roll_losses[i]))
+        logger.info('Prediction %d\n data amount: %d\naverage loss:%.4f  std loss:%.4f  max loss:%.4f  min loss:%.4f' % 
+            (i, num[i], avg_losses[i], std_losses[i], max_losses[i], min_losses[i]))
     
     avg_loss = np.average(np.array(all_losses)) * 10.0
     std_loss = np.std(np.array(all_losses)) * 10.0
@@ -56,9 +58,11 @@ def loss_stat(num_pose, all_losses, losses, all_angle_losses = None, angle_losse
     else:
         avg_angle_loss = np.zeros(3)
         std_angle_loss = np.zeros(3)
-    logger.info('Total:\naverage loss:%.4f  std loss:%.4f\navg pitch loss:%.4f  avg yaw loss:%.4f  avg roll loss:%.4f\n' \
-        'std pitch loss:%.4f  std yaw loss:%.4f  std roll loss:%.4f' 
-        % (avg_loss, std_loss, avg_angle_loss[0], avg_angle_loss[1], avg_angle_loss[2], std_angle_loss[0], std_angle_loss[1], std_angle_loss[2]))
+    # logger.info('Total:\naverage loss:%.4f  std loss:%.4f\navg pitch loss:%.4f  avg yaw loss:%.4f  avg roll loss:%.4f\n' \
+    #     'std pitch loss:%.4f  std yaw loss:%.4f  std roll loss:%.4f' 
+    #     % (avg_loss, std_loss, avg_angle_loss[0], avg_angle_loss[1], avg_angle_loss[2], std_angle_loss[0], std_angle_loss[1], std_angle_loss[2]))
+    logger.info('Total:\naverage loss:%.4f  std loss:%.4f'
+        % (avg_loss, std_loss))
     
     if write_result:
         with open(os.path.join(save_dir, 'result.csv'), 'w', newline='') as f:
