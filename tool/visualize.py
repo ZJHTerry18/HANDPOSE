@@ -90,7 +90,8 @@ def vis(data, e_local_test, e_global_test, e_local_res, e_global_res, e_local_re
         yp_global_res2 = e_global_res2.T[1].T
         zp_global_res2 = e_global_res2.T[2].T
 
-    touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
+    # touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
+    touch_ind = []
 	
     fig = plt.figure(figsize=plt.figaspect(0.5))
     axtest1 = fig.add_subplot(1,2,1, projection='3d')

@@ -16,11 +16,11 @@ from loss import eloss, loss_stat
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
 DATASET_PATH = '../dataset/train_type'
-DATA_PATH = '../dataset/test_type_wofp'
+DATA_PATH = '../dataset/test_type_wofp2'
 K = 20
 METRIC = 'aL1'
 LOSS_TYPE = 1 # 0: EPE 1:EPE_v
-SAVE_FIGURE = True
+SAVE_FIGURE = False
 WRITE_RESULT = False
 SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknnwofp', str(K), METRIC]))
 
