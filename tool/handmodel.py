@@ -225,3 +225,74 @@ def get_skeleton_from_data(data):
 	
 	return e_local, e_global
 
+
+def rigid_transform_3D(A, B):
+	assert len(A) == len(B)
+	N = A.shape[0]
+	mu_A = np.mean(A, axis=0)
+	mu_B = np.mean(B, axis=0)
+
+	AA = A - np.tile(mu_A, (N, 1))
+	BB = B - np.tile(mu_B, (N, 1))
+	H = np.dot(np.transpose(AA), BB)
+	print(H.shape)
+
+	U, S, Vt = np.linalg.svd(H)
+	R = np.dot(Vt.T, U.T)
+
+	if np.linalg.det(R) < 0:
+		print("Reflection detected")
+		Vt[2, :] *= -1
+		R = np.dot(Vt.T, U.T)
+
+	t = -np.dot(R, mu_A.reshape(-1,1)) + mu_B.reshape(-1,1)
+
+	return R, t
+
+
+def transform_to_global(gt, pred, e_gt, e_pred):
+	assert int(gt[0][0]) == int(pred[0][0]), "handpose unmatch"
+	finger_dict = {0:7, 1:10, 2:13, 3:16, 4:19}
+	l = np.array([3.0,2.0,2.0,2.0,2.0])
+	pose_id = int(gt[0][0])
+	hand_id = int(gt[0][1])
+	touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
+	touch_num = len(touch_ind)
+	ini_points = np.zeros((2*touch_num, 3))
+	tg_points = np.zeros_like(ini_points)
+	for i, ti in enumerate(touch_ind):
+		# tip points
+		ini_points[i] = e_pred[finger_dict[ti]]
+		# tg_points[i] = gt[ti*5+5] * 0.1
+		tg_points[i] = e_gt[finger_dict[ti]]
+
+		# dip points
+		ini_points[i+touch_num] = e_pred[finger_dict[ti] - 1]
+		gt_pitch = gt[ti*5+4][0]
+		gt_yaw = gt[ti*5+4][1]
+		if hand_id == 0:
+			gt_yaw = -gt_yaw
+		uz = -1.0 if abs(gt_pitch) > np.pi / 2 else 1.0
+		ux = uz * np.tan(np.pi - gt_yaw)
+		uy = uz * np.tan(np.pi - gt_pitch)
+		u = np.array([ux,uy,uz])
+		u = u / np.linalg.norm(u)
+		# tg_points[i+touch_num] = ini_points[i] + l[ti] * u
+		tg_points[i+touch_num] = e_gt[finger_dict[ti] - 1]
+	
+	# fit transform matrix
+	R, t = rigid_transform_3D(ini_points, tg_points)
+	print(R, t)
+	res_points = (np.dot(R, ini_points.T) + t).T
+	fig = plt.figure()
+	ax = fig.add_subplot(1,1,1, projection='3d')
+	ax.scatter(ini_points[:,0], ini_points[:,1], ini_points[:,2])
+	ax.scatter(tg_points[:,0], tg_points[:,1], tg_points[:,2], c='r', marker='x')
+	ax.scatter(res_points[:,0], res_points[:,1], res_points[:,2], c='g', marker='o')
+	plt.show()
+
+	rmse = np.average(np.sqrt(np.sum(np.square(res_points - tg_points), axis=1)))
+	print(rmse)
+
+	e_pred_trans = (np.dot(R, e_pred.T) + t).T
+	return e_pred_trans
