@@ -7,7 +7,7 @@ from loguru import logger
 import os.path as osp
 import math
 from config import cfg
-from tool.handmodel import get_skeleton_from_data
+from tool.handmodel import get_skeleton_from_data, transform_to_global
 from tool.visualize import vis, vis_fp
 from tool.dataload import load_dataset
 from loss import eloss, loss_stat
@@ -16,13 +16,13 @@ from loss import eloss, loss_stat
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
 DATASET_PATH = '../dataset/train_type'
-DATA_PATH = '../dataset/test_type_wofp2'
+DATA_PATH = '../dataset/test_type_new'
 K = 20
 METRIC = 'aL1'
 LOSS_TYPE = 1 # 0: EPE 1:EPE_v
 SAVE_FIGURE = False
 WRITE_RESULT = False
-SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknnwofp', str(K), METRIC]))
+SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknn_new', str(K), METRIC]))
 
 def softmax(x):
     x = x - np.max(x)
@@ -30,6 +30,10 @@ def softmax(x):
     return f_x
 
 def kNNsearch(x0, dataset, touch_ind, k = 20, metric = 'aL1'):
+    w_a = 1.0
+    w_p = 0.33
+    w_y = 0.33
+
     x = x0.copy()
     a_ind = [4,9,14,19,24]
     p_ind = [5,10,15,20,25]
@@ -54,10 +58,14 @@ def kNNsearch(x0, dataset, touch_ind, k = 20, metric = 'aL1'):
         if metric == 'aL2':
             dist = np.linalg.norm(x[a_ind][touch_ind] - z[a_ind][touch_ind])
         elif metric == 'aL1':
-            wt = 1.0
-            a_dist = np.sum(np.abs(x[a_ind][touch_ind] - z[a_ind][touch_ind]))
+            # a_dist = np.sum(np.abs(x[a_ind][touch_ind] - z[a_ind][touch_ind]))
+            a_dist = 3.0 * (
+                w_p * np.sum(np.abs(x[a_ind][touch_ind][:,0] - z[a_ind][touch_ind][:,0])) + 
+                w_y * np.sum(np.abs(x[a_ind][touch_ind][:,1] - z[a_ind][touch_ind][:,1])) + 
+                (1.0 - w_p - w_y) * np.sum(np.abs(x[a_ind][touch_ind][:,2] - z[a_ind][touch_ind][:,2]))
+            )
             p_dist = sum([np.sqrt((x[p_ind[i],0] - z[p_ind[i],0]) ** 2 + (x[p_ind[i],2] - z[p_ind[i],2]) ** 2) for i in touch_ind])
-            dist = wt * a_dist  + (1 - wt) * p_dist
+            dist = w_a * a_dist  + (1 - w_a) * p_dist
 
         # to do: other metrics
         
@@ -176,19 +184,6 @@ def angle_loss(test, pred, touch_ind):
     rollloss = np.average(np.array(roll_err))
     return list([pitchloss, yawloss, rollloss])
 
-
-def loss(e_test, e_pred, touch_ind, all = True):
-    e_dist = np.sqrt(np.sum(np.square(e_test - e_pred), axis=1))
-    ind = []
-    if all:
-        ind = [1] + list(range(6,20))
-    else:
-        inddict = {0:[1,6,7], 1:[8,9,10], 2:[11,12,13], 3:[14,15,16], 4:[17,18,19]}
-        for i in touch_ind:
-            ind = ind + inddict[i]
-    return np.average(e_dist[ind])
-
-
 if __name__ == "__main__":
     if not osp.exists(SAVE_DIR):
         os.makedirs(SAVE_DIR)
@@ -219,6 +214,8 @@ if __name__ == "__main__":
         e_test_local, e_test_global = get_skeleton_from_data(test_data)
         e_pred_local, e_pred_global = get_skeleton_from_data(pred)
         e_pred2_local, e_pred2_global = get_skeleton_from_data(pred_def)
+        if pose_id > 10:
+            e_pred_trans = transform_to_global(test_data, pred, e_test_global, e_pred2_global)
         lossval = eloss(e_test_local, e_pred2_local, touch_ind, all=(LOSS_TYPE == 0))
         losses[hand_id * NUM_POSE + pose_id].append(lossval)
         all_losses.append(lossval)

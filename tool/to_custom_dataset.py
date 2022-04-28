@@ -3,8 +3,8 @@ import os
 import shutil
 from tqdm import tqdm
 
-READ_PATH = 'D:\Workspace\HANDPOSE\dataset\\train'
-WRITE_PATH = 'D:\Workspace\HANDPOSE\dataset\\train_type'
+READ_PATH = r'D:\Workspace\HANDPOSE\dataset\train_new'
+WRITE_PATH = r'D:\Workspace\HANDPOSE\dataset\train_type_new'
 
 if not os.path.exists(WRITE_PATH):
     os.makedirs(WRITE_PATH)

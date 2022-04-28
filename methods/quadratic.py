@@ -18,11 +18,11 @@ from loss import eloss, loss_stat
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
 TRAIN_PATH = '../dataset/train_type'
-TEST_PATH = '../dataset/test_type_2'
+TEST_PATH = '../dataset/test_type_new'
 LOSS_TYPE = 1
-SAVE_FIGURE = False
-WRITE_RESULT = False
-SAVE_DIR = osp.join('..', 'results', '_'.join(['quad','1','type']))
+SAVE_FIGURE = True
+WRITE_RESULT = True
+SAVE_DIR = osp.join('..', 'results', '_'.join(['quadnew','1','type']))
 TEST_ONLY = False
 MODEL_PATH = '../pkls/quadratic_model.pkl'
 
