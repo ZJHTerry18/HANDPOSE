@@ -3,13 +3,24 @@ from loguru import logger
 import csv
 import os
 
-def eloss(e_test, e_pred, touch_ind, all = True):
+def eloss_local(e_test, e_pred, touch_ind, all = True):
     e_dist = np.sqrt(np.sum(np.square(e_test - e_pred), axis=1))
     ind = []
     if all:
         ind = [1] + list(range(6,20))
     else:
         inddict = {0:[1,6,7], 1:[8,9,10], 2:[11,12,13], 3:[14,15,16], 4:[17,18,19]}
+        for i in touch_ind:
+            ind = ind + inddict[i]
+    return np.average(e_dist[ind])
+
+def eloss_global(e_test, e_pred, touch_ind, all=True):
+    e_dist = np.sqrt(np.sum(np.square(e_test - e_pred), axis=1))
+    ind = []
+    if all:
+        ind = list(range(20))
+    else:
+        inddict = {0:[0,1,6,7], 1:[2,8,9,10], 2:[3,11,12,13], 3:[4,14,15,16], 4:[5,17,18,19]}
         for i in touch_ind:
             ind = ind + inddict[i]
     return np.average(e_dist[ind])
