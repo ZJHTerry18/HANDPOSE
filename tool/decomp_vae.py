@@ -10,9 +10,11 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from handmodel import get_skeleton_from_data
 from visualize import vis
+from gen_curl import curl_type
 
-DATA_PATH = '../dataset/train/txts'
-VAE_DATA_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\\nvae_results\\nvae_samples.pkl'
+TRAIN_PATH = '../dataset/train_new/txts'
+TEST_PATH = '../dataset/train_type_new'
+VAE_DATA_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\\nvae_results\\nvae_afinger_samples.pkl'
 GAT_DATA_PATH = 'D:\Workspace\LeapMotion\leapHandpose\leapHandpose\\nvae_results\\gat_samples.pkl'
 SAVE_PKL_PATH = '../results/pkls/tsne'
 METHOD = 'tSNE'
@@ -47,19 +49,6 @@ def read_pkldata(datapath):
 
     return dat_set, x, y_curl
 
-def curl_type(x):
-    ind = [(2,3),(7,8),(12,13),(17,18),(22,23)]
-    curl_num = 0
-    for i1,i2 in ind:
-        angles = x[i1-1][1] + x[i1][0] + x[i2][0]
-        if angles > 120:
-            curl_num += 1
-
-    if curl_num == 0:
-        return 0
-    else:
-        return 1
-
 
 def decomposition(x, method = 'tSNE', dim = 2):
     if method == 'PCA':
@@ -72,17 +61,17 @@ def decomposition(x, method = 'tSNE', dim = 2):
 def vis_decomp(x, y, hand, method):
     dim = x.shape[1]
     assert dim == 2 or dim == 3
-    color = ['r', 'b', 'g', 'y', 'k', 'c']
-    label = ['no-curl', 'curl', 'vae no-curl', 'vae curl', 'gat no-curl', 'gat curl']
-    alpha = [1.0, 1.0, 0.05, 0.05]
+    color = ['r', 'b', 'g', 'c', 'k', 'c']
+    label = ['train no-curl', 'train curl', 'test database', 'afinger-vae curl', '5-touch', 'gat curl']
+    alpha = [1.0, 0.05, 0.05, 0.05, 0.05, 0.05]
 
     if dim == 2:
         plt.figure()
-        plt.xlim(-125,250)
+        plt.xlim(-150,250)
         plt.ylim(-100,125)
         tag_list = np.unique(y).tolist()
         for i in tag_list:
-            plt.scatter(x[y == i,0], x[y == i,1], c=color[i], label=label[i])
+            plt.scatter(x[y == i,0], x[y == i,1], s=5, c=color[i], label=label[i])
         plt.legend()
         # plt.title('%s of %s hand (2-dimension)' % (method, hand))
         plt.show()
@@ -97,7 +86,7 @@ def vis_decomp(x, y, hand, method):
 
 def do_tsne():
     ### tsne for train dataset ###
-    dataset = load_dataset(DATA_PATH)
+    dataset = load_dataset(TRAIN_PATH)
     dataset_left = []
     dataset_right = []
 
@@ -106,13 +95,9 @@ def do_tsne():
         [(k,2) for k in range(14,21)] + [(k,3) for k in range(21,25)] + [(25,4)])
     # print(y_dict)
     # print(dataset[0][ind])
-    for x in dataset:
-        if int(x[0][1]) == 0:
-            dataset_left.append(x)
-        else:
-            dataset_right.append(x)
 
     x_gt = np.array([k[ind][1:].ravel() for k in dataset])
+    y_gt = np.array([y_dict[int(k[0][0])] for k in dataset])
     y_gt_curl = np.array([curl_type(x) for x in dataset])
 
     logger.info('decompositing training data')
@@ -120,60 +105,86 @@ def do_tsne():
     # model_x_left, new_x_left = decomposition(x_left, method=METHOD, dim=DIM)
     # model_x_right, new_x_right = decomposition(x_right, method=METHOD, dim=DIM)
     model_x_gt, new_x_gt = decomposition(x_gt, method=METHOD, dim=DIM)
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_gt.pkl'), 'wb') as f:
-        pickle.dump([new_x_gt, y_gt_curl], f)
+    with open(osp.join(SAVE_PKL_PATH, 'train_type_new.pkl'), 'wb') as f:
+        pickle.dump([new_x_gt, y_gt, y_gt_curl], f)
+    
+    ### tsne for test dataset ###
+    dataset = load_dataset(TEST_PATH)
+    dataset_left = []
+    dataset_right = []
+
+    ind = [0,1,2,3,6,7,8,11,12,13,16,17,18,21,22,23]
+    y_dict = dict([(k,0) for k in range(5)] + [(k,1) for k in range(5,14)] +
+        [(k,2) for k in range(14,21)] + [(k,3) for k in range(21,25)] + [(25,4)])
+    # print(y_dict)
+    # print(dataset[0][ind])
+
+    x_val = np.array([k[ind][1:].ravel() for k in dataset])
+    y_val = np.array([y_dict[int(k[0][0])] for k in dataset])
+    y_val_curl = np.array([curl_type(x) for x in dataset])
+
+    logger.info('decompositing val data')
+
+    # model_x_left, new_x_left = decomposition(x_left, method=METHOD, dim=DIM)
+    # model_x_right, new_x_right = decomposition(x_right, method=METHOD, dim=DIM)
+    model_x_val, new_x_val = decomposition(x_val, method=METHOD, dim=DIM)
+    with open(osp.join(SAVE_PKL_PATH, 'train_type_new.pkl'), 'wb') as f:
+        pickle.dump([new_x_val, y_val, y_val_curl], f)
 
     ## visualize some points
     vis_decomp(new_x_gt, y_gt_curl, hand='right', method=METHOD)
+    vis_decomp(new_x_val, y_val_curl, hand='right', method=METHOD)
 
     ### tsne for nvae results
     vae_set, x_vae, y_vae_curl = read_pkldata(VAE_DATA_PATH)
     gat_set, x_gat, y_gat_curl = read_pkldata(GAT_DATA_PATH)
 
     
-    logger.info('decompositing only vae results')
-    # only nvae result
-    model_vaeonly, new_x_vaeonly = decomposition(x_vae, method=METHOD, dim=DIM)
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_vae.pkl'), 'wb') as f:
-        pickle.dump([new_x_vaeonly, y_vae_curl], f)
+    # logger.info('decompositing only vae results')
+    # # only nvae result
+    # model_vaeonly, new_x_vae = decomposition(x_vae, method=METHOD, dim=DIM)
+    # with open(osp.join(SAVE_PKL_PATH, 'x_tsne_afvae.pkl'), 'wb') as f:
+    #     pickle.dump([new_x_vae, y_vae_curl], f)
     # vis_decomp(new_x_vaeonly, y_vae_curl + 2, hand='right', method=METHOD)
 
-    # only gat result
-    logger.info('decompositing only gat results')
-    model_gatonly, new_x_gatonly = decomposition(x_gat, method=METHOD, dim=DIM)
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_gat.pkl'), 'wb') as f:
-        pickle.dump([new_x_gatonly, y_gat_curl], f)
-    # vis_decomp(new_x_gatonly, y_gat_curl + 4, hand='right', method=METHOD)
+    # # only gat result
+    # logger.info('decompositing only gat results')
+    # model_gatonly, new_x_gatonly = decomposition(x_gat, method=METHOD, dim=DIM)
+    # with open(osp.join(SAVE_PKL_PATH, 'x_tsne_gat.pkl'), 'wb') as f:
+    #     pickle.dump([new_x_gatonly, y_gat_curl], f)
+    # # vis_decomp(new_x_gatonly, y_gat_curl + 4, hand='right', method=METHOD)
 
     logger.info('decompositing all results altogether')
     # plot vae tsne result in train dataset tsne result
-    x_all = np.concatenate((x_gt, x_vae, x_gat), axis=0)
-    y_all_curl = np.concatenate((y_gt_curl, y_vae_curl + 2, y_gat_curl + 4), axis=0)
+    x_all = np.concatenate((x_gt, x_val), axis=0)
+    y_all = np.concatenate((y_gt, y_val), axis=0)
+    y_all_curl = np.concatenate((y_gt_curl, np.zeros_like(y_val_curl, dtype=int) + 2), axis=0)
     __ , new_x_all = decomposition(x_all, method=METHOD, dim=DIM)
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_all.pkl'), 'wb') as f:
-        pickle.dump([new_x_all, y_all_curl], f)
-    # vis_decomp(new_x_vaeandall[:x_all.shape[0]], y_vaeandall_curl[:x_all.shape[0]], hand='right', method=METHOD)
-    # vis_decomp(new_x_vaeandall[x_all.shape[0]:], y_vaeandall_curl[x_all.shape[0]:], hand='right', method=METHOD)
+    with open(osp.join(SAVE_PKL_PATH, 'trainandtraintype_new.pkl'), 'wb') as f:
+        pickle.dump([new_x_all, y_all, y_all_curl], f)
+    vis_decomp(new_x_all[:x_gt.shape[0]], y_all_curl[:x_gt.shape[0]], hand='right', method=METHOD)
+    vis_decomp(new_x_all[x_gt.shape[0]:], y_all_curl[x_gt.shape[0]:], hand='right', method=METHOD)
 
 def tsne_vis():
-    gt_set = load_dataset(DATA_PATH)
+    gt_set = load_dataset(TRAIN_PATH)
+    val_set = load_dataset(TEST_PATH)
     vae_set, __, __ = read_pkldata(VAE_DATA_PATH)
     gat_set, __, __ = read_pkldata(GAT_DATA_PATH) 
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_gt.pkl'), 'rb') as f:
-        new_x_gt, y_gt_curl = pickle.load(f)
+    with open(osp.join(SAVE_PKL_PATH, 'train_type_new.pkl'), 'rb') as f:
+        new_x_gt, y_gt, y_gt_curl = pickle.load(f)
     with open(osp.join(SAVE_PKL_PATH, 'x_tsne_vae.pkl'), 'rb') as f:
         new_x_vae, y_vae_curl = pickle.load(f)
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_gat.pkl'), 'rb') as f:
-        new_x_gat, y_gat_curl = pickle.load(f)
-    with open(osp.join(SAVE_PKL_PATH, 'x_tsne_all.pkl'), 'rb') as f:
-        new_x_all, y_all_curl = pickle.load(f)
-    
+    with open(osp.join(SAVE_PKL_PATH, 'test_type_new.pkl'), 'rb') as f:
+        new_x_test, y_test, y_test_curl = pickle.load(f)
+    with open(osp.join(SAVE_PKL_PATH, 'trainandtest_type_new.pkl'), 'rb') as f:
+        new_x_all, y_all, y_all_curl = pickle.load(f)
+
+    # vis_decomp(new_x_gt, y_gt, hand='right', method=METHOD)
+    # vis_decomp(new_x_test, y_test, hand='right', method=METHOD)
     # vis_decomp(new_x_all, y_all_curl, hand='right', method=METHOD)
-    # vis_decomp(new_x_vae, y_vae_curl, hand='right', method=METHOD)
-    # vis_decomp(new_x_vaeandall, y_vaeandall_curl, hand='right', method=METHOD)
 
     # vis_decomp(new_x_all[:new_x_gt.shape[0]], y_all_curl[:new_x_gt.shape[0]], hand='right', method=METHOD)
-    # vis_decomp(new_x_all[new_x_gt.shape[0]:new_x_gt.shape[0]+new_x_vae.shape[0]], y_all_curl[new_x_gt.shape[0]:new_x_gt.shape[0]+new_x_vae.shape[0]], hand='right', method=METHOD)
+    # vis_decomp(new_x_all[new_x_gt.shape[0]:], y_all_curl[new_x_gt.shape[0]:], hand='right', method=METHOD)
     # vis_decomp(new_x_all[new_x_gt.shape[0]+new_x_vae.shape[0]:], y_all_curl[new_x_gt.shape[0]+new_x_vae.shape[0]:], hand='right', method=METHOD)
 
     for i in range(new_x_all.shape[0]):
@@ -182,17 +193,18 @@ def tsne_vis():
 
         if i in range(new_x_gt.shape[0]):
             j = i
-            if int(gt_set[j][0][1]) == 0:
-                if 80 > xi > 70 and 100 > yi > 80:
-                    e_local, e_global = get_skeleton_from_data(gt_set[j])
-                    vis(gt_set[j], e_local, e_global, e_local, e_global, show=True)
-            
-        elif i in range(new_x_gt.shape[0], new_x_gt.shape[0] + new_x_vae.shape[0]):
-            # j = i - new_x_gt.shape[0]
-            # if 80 > xi > 70 and 100 > yi > 80:
-            #     e_local, e_global = get_skeleton_from_data(vae_set[j])
-            #     vis(vae_set[j], e_local, e_global, e_local, e_global, show=True)
+            gt_set[j][0][1] = 0.0
+            if -20 > xi > -30 and -20 > yi > -30:
+                e_local, e_global = get_skeleton_from_data(gt_set[j])
+                vis(gt_set[j], e_local, e_global, e_local, e_global, show=True)
             pass
+            
+        elif i in range(new_x_gt.shape[0], new_x_gt.shape[0] + new_x_test.shape[0]):
+            j = i - new_x_gt.shape[0]
+            val_set[j][0][1] = 0.0
+            if yi > 90:
+                e_local, e_global = get_skeleton_from_data(val_set[j])
+                vis(val_set[j], e_local, e_global, e_local, e_global, show=True)
             
         else:
             # j = i - new_x_gt.shape[0] - new_x_vae.shape[0]
@@ -202,7 +214,7 @@ def tsne_vis():
             pass
 
 def tsne_search(query_list):
-    gt_set = load_dataset(DATA_PATH)
+    gt_set = load_dataset(TRAIN_PATH)
     vae_set, __, __ = read_pkldata(VAE_DATA_PATH)
     gat_set, __, __ = read_pkldata(GAT_DATA_PATH) 
     with open(osp.join(SAVE_PKL_PATH, 'x_tsne_gt.pkl'), 'rb') as f:
@@ -230,8 +242,8 @@ def tsne_search(query_list):
     
 
 if __name__ == "__main__":
-    # do_tsne()
-    tsne_vis()
+    do_tsne()
+    # tsne_vis()
     query_list = [
         '00_0_0209', '01_0_0061', '01_0_0737', '02_0_0865', '02_0_0897', '02_1_0119', '03_0_0580', '04_0_0675'
         '05_1_0824', '07_0_0880', '07_0_0884', '08_0_0261', '08_0_0734', '09_0_0813', '09_0_0814', '09_0_0817'

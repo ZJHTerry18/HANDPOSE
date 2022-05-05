@@ -7,24 +7,11 @@ from loguru import logger
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from handmodel import get_skeleton_from_data, vis_and_save_result
+from gen_curl import curl_type
 
 DATA_PATH = '../dataset/train'
 METHOD = 'tSNE'
 DIM = 2
-
-def curl_type(x):
-    ind = [(2,3),(7,8),(12,13),(17,18),(22,23)]
-    curl_num = 0
-    for i1,i2 in ind:
-        angles = x[i1-1][1] + x[i1][0] + x[i2][0]
-        if angles > 120:
-            curl_num += 1
-
-    if curl_num == 0:
-        return 0
-    else:
-        return 1
-
 
 def decomposition(x, method = PCA, dim = 2):
     if method == 'PCA':

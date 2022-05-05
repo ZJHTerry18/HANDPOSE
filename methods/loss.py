@@ -25,6 +25,17 @@ def eloss_global(e_test, e_pred, touch_ind, all=True):
             ind = ind + inddict[i]
     return np.average(e_dist[ind])
 
+def eloss_tip(e_test, e_pred, touch_ind, all=True):
+    e_dist = np.sqrt(np.sum(np.square(e_test - e_pred), axis=1))
+    ind = []
+    if all:
+        ind = list(range(20))
+    else:
+        inddict = {0:[7], 1:[10], 2:[13], 3:[16], 4:[19]}
+        for i in touch_ind:
+            ind = ind + inddict[i]
+    return np.average(e_dist[ind])
+
 
 def loss_stat(num_pose, all_losses, losses, all_angle_losses = None, angle_losses = None, write_result = None, save_dir = None):
     num = np.zeros(2 * num_pose)

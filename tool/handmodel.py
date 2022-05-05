@@ -32,6 +32,7 @@ def rot_axis(v, k, theta):
 	return v_rot
 
 def get_skeleton_from_data(data):
+	# default setting
 	phi_I = 110 * np.pi / 180
 	phi_M = 90 * np.pi / 180
 	phi_R = 70 * np.pi / 180
@@ -57,6 +58,33 @@ def get_skeleton_from_data(data):
 	l[5][17] = 4.0
 	l[17][18] = 2.5
 	l[18][19] = 2.0
+
+	# # leap setting
+	# phi_I = 116.93 * np.pi / 180
+	# phi_M = 103.83 * np.pi / 180
+	# phi_R = 73.57 * np.pi / 180
+	# phi_L = 56.29 * np.pi / 180
+
+	# l = np.zeros((20,20)) # connection relationship
+	# l[0][1] = 4.5
+	# l[0][2] = 7.0
+	# l[0][3] = 6.4
+	# l[0][4] = 5.9
+	# l[0][5] = 5.9
+	# l[1][6] = 3.1
+	# l[6][7] = 2.4
+	# l[2][8] = 3.9
+	# l[8][9] = 2.2
+	# l[9][10] = 1.7
+	# l[3][11] = 4.4
+	# l[11][12] = 2.6
+	# l[12][13] = 1.9
+	# l[4][14] = 4.1
+	# l[14][15] = 2.5
+	# l[15][16] = 1.9
+	# l[5][17] = 3.2
+	# l[17][18] = 1.8
+	# l[18][19] = 1.7
 
 	ind_dict_1 = {1:0, 6:2, 11:3, 16:4, 21:5}
 	ind_dict_2 = {2:1, 7:8, 12:11, 17:14, 22:17}
@@ -92,10 +120,17 @@ def get_skeleton_from_data(data):
 		elif i % 5 == 0 and i != 0:
 			for j in range(3):
 				tippos[i//5 - 1][j] = data[i][j]
+
+	# phi[0] = phi[0] + 30.0
+	# phi[1] = phi[1] - 14.06
+	# phi[2] = phi[2] - 5.13
+	# phi[3] = phi[3] + 5.38
+	# phi[4] = phi[4] + 17.44
 	
 	phi = phi * np.pi / 180
 	theta = theta * np.pi / 180
 	tipangles = tipangles * np.pi / 180
+
 	if hand_id == 0:
 		phi = -phi
 
@@ -235,13 +270,12 @@ def rigid_transform_3D(A, B):
 	AA = A - np.tile(mu_A, (N, 1))
 	BB = B - np.tile(mu_B, (N, 1))
 	H = np.dot(np.transpose(AA), BB)
-	print(H.shape)
 
 	U, S, Vt = np.linalg.svd(H)
 	R = np.dot(Vt.T, U.T)
 
 	if np.linalg.det(R) < 0:
-		print("Reflection detected")
+		# print("Reflection detected")
 		Vt[2, :] *= -1
 		R = np.dot(Vt.T, U.T)
 
@@ -259,6 +293,8 @@ def transform_to_global(gt, pred, e_gt, e_pred):
 	touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
 	touch_num = len(touch_ind)
 	ini_points = np.zeros((2*touch_num, 3))
+	if touch_num == 1:
+		ini_points = np.zeros((3,3))
 	tg_points = np.zeros_like(ini_points)
 	for i, ti in enumerate(touch_ind):
 		# tip points
@@ -268,31 +304,52 @@ def transform_to_global(gt, pred, e_gt, e_pred):
 
 		# dip points
 		ini_points[i+touch_num] = e_pred[finger_dict[ti] - 1]
-		gt_pitch = gt[ti*5+4][0]
-		gt_yaw = gt[ti*5+4][1]
+		gt_pitch = gt[ti*5+4][0] * np.pi / 180.0
+		gt_yaw = gt[ti*5+4][1] * np.pi / 180.0
+		gt_roll = gt[ti*5+4][2] * np.pi / 180.0
+		pred_roll = pred[ti*5+4][2] * np.pi / 180.0
 		if hand_id == 0:
 			gt_yaw = -gt_yaw
+			gt_roll = -gt_roll
 		uz = -1.0 if abs(gt_pitch) > np.pi / 2 else 1.0
 		ux = uz * np.tan(np.pi - gt_yaw)
 		uy = uz * np.tan(np.pi - gt_pitch)
 		u = np.array([ux,uy,uz])
 		u = u / np.linalg.norm(u)
-		# tg_points[i+touch_num] = ini_points[i] + l[ti] * u
+		# tg_points[i+touch_num] = tg_points[i] + l[ti] * u
 		tg_points[i+touch_num] = e_gt[finger_dict[ti] - 1]
+
+		# auxiliary point for 1-finger touch occasions
+		if touch_num == 1:
+			e2 = e_pred[finger_dict[ti]] - e_pred[finger_dict[ti] - 1]
+			ndx = 1.0 if pred_roll > 0 else -1.0
+			ndy = ndx / (np.tan(pred_roll) + 1e-6)
+			ndz = -(e2[0] * ndx + e2[1] * ndy) / (e2[2] + 1e-6)
+			n_pred = np.array([ndx,ndy,ndz])
+			n_pred = n_pred / np.linalg.norm(n_pred)
+			ini_points[2] = ini_points[1] + n_pred
+
+			e2 = e_gt[finger_dict[ti]] - e_gt[finger_dict[ti] - 1]
+			ndx = 1.0 if gt_roll > 0 else -1.0
+			ndy = ndx / (np.tan(gt_roll) + 1e-6)
+			ndz = -(e2[0] * ndx + e2[1] * ndy) / (e2[2] + 1e-6)
+			n_gt = np.array([ndx,ndy,ndz])
+			n_gt = n_gt / np.linalg.norm(n_gt)
+			tg_points[2] = tg_points[1] + n_gt
+
 	
 	# fit transform matrix
 	R, t = rigid_transform_3D(ini_points, tg_points)
-	print(R, t)
 	res_points = (np.dot(R, ini_points.T) + t).T
-	fig = plt.figure()
-	ax = fig.add_subplot(1,1,1, projection='3d')
-	ax.scatter(ini_points[:,0], ini_points[:,1], ini_points[:,2])
-	ax.scatter(tg_points[:,0], tg_points[:,1], tg_points[:,2], c='r', marker='x')
-	ax.scatter(res_points[:,0], res_points[:,1], res_points[:,2], c='g', marker='o')
-	plt.show()
+	# fig = plt.figure()
+	# ax = fig.add_subplot(1,1,1, projection='3d')
+	# ax.scatter(ini_points[:,0], ini_points[:,1], ini_points[:,2], label='变换前点集')
+	# ax.scatter(tg_points[:,0], tg_points[:,1], tg_points[:,2], c='r', marker='x', label='目标点集')
+	# ax.scatter(res_points[:,0], res_points[:,1], res_points[:,2], c='g', marker='o',label='变换后点集')
+	# plt.show()
 
-	rmse = np.average(np.sqrt(np.sum(np.square(res_points - tg_points), axis=1)))
-	print(rmse)
+	# rmse = np.average(np.sqrt(np.sum(np.square(res_points - tg_points), axis=1)))
+	# print(rmse)
 
 	e_pred_trans = (np.dot(R, e_pred.T) + t).T
 	return e_pred_trans

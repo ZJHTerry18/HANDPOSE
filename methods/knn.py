@@ -10,19 +10,20 @@ from config import cfg
 from tool.handmodel import get_skeleton_from_data, transform_to_global
 from tool.visualize import vis, vis_fp
 from tool.dataload import load_dataset
-from loss import eloss, loss_stat
+from loss import eloss_local, eloss_global, eloss_tip, loss_stat
 
 
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
-DATASET_PATH = '../dataset/train_type'
+DATASET_PATH = '../dataset/train_new/txts'
 DATA_PATH = '../dataset/test_type_new'
 K = 20
 METRIC = 'aL1'
 LOSS_TYPE = 1 # 0: EPE 1:EPE_v
-SAVE_FIGURE = False
+SAVE_FIGURE = True
 WRITE_RESULT = False
-SAVE_DIR = osp.join('..', 'results', '_'.join(['typeknn_new', str(K), METRIC]))
+# SAVE_DIR = osp.join('..', 'results', '_'.join(['gbl', 'typeknn_new', str(K), METRIC]))
+SAVE_DIR = '../dataset/train_new/imgs'
 
 def softmax(x):
     x = x - np.max(x)
@@ -214,9 +215,11 @@ if __name__ == "__main__":
         e_test_local, e_test_global = get_skeleton_from_data(test_data)
         e_pred_local, e_pred_global = get_skeleton_from_data(pred)
         e_pred2_local, e_pred2_global = get_skeleton_from_data(pred_def)
-        if pose_id > 10:
-            e_pred_trans = transform_to_global(test_data, pred, e_test_global, e_pred2_global)
-        lossval = eloss(e_test_local, e_pred2_local, touch_ind, all=(LOSS_TYPE == 0))
+        e_pred_trans = transform_to_global(test_data, pred, e_test_global, e_pred_global)
+        e_pred2_trans = transform_to_global(test_data, pred, e_test_global, e_pred2_global)
+        # lossval = eloss_local(e_test_local, e_pred2_local, touch_ind, all=(LOSS_TYPE == 0))
+        # lossval = eloss_global(e_test_global, e_pred2_trans, touch_ind, all=(LOSS_TYPE == 0))
+        lossval = eloss_tip(e_test_global, e_pred2_trans, touch_ind, all=(LOSS_TYPE == 0))
         losses[hand_id * NUM_POSE + pose_id].append(lossval)
         all_losses.append(lossval)
         angle_lossval = angle_loss(test_data, pred_def, touch_ind)
@@ -225,8 +228,8 @@ if __name__ == "__main__":
 
         if SAVE_FIGURE:
             save_figname = '_'.join([str(pose_id).zfill(2), str(hand_id), str(seq).zfill(3)]) + '.jpg'
-            vis(test_data, e_test_local, e_test_global, e_pred_local, e_pred_global, 
-                e_pred2_local, e_pred2_global, show=False, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
+            vis(test_data, e_test_local, e_test_global, e_test_local, e_test_global, 
+                None, None, show=False, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
             # save_fpfigname = save_figname[:-4] + 'fp.jpg'
             # vis_fp(test_data, pred, show=False, save=False, save_dir=SAVE_DIR, save_fig=save_fpfigname)
     

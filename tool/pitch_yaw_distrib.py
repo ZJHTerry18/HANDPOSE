@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from config import cfg
 
-DATA_PATH = '../dataset/test_type'
+DATA_PATH = '../dataset/test_type_wofp_new'
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
 
