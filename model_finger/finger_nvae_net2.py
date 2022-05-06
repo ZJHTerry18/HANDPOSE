@@ -64,25 +64,6 @@ class EncCombinerCell(nn.Module):
         out = x1 + x2
         return out
 
-class Celldec(nn.Module):
-    def __init__(self, dim_in, mult = 2):
-        super().__init__()
-        self.ctype = 'dec'
-        self.bnswish1 = nn.Sequential(nn.BatchNorm1d(dim_in , momentum=0.05), Swish())
-        self.lift = nn.Linear(dim_in, dim_in * mult)
-        self.bnswish2 = nn.Sequential(nn.BatchNorm1d(dim_in * mult, momentum=0.05), Swish())
-        self.down = nn.Linear(dim_in * mult, dim_in)
-        self.skip = nn.Linear(dim_in, dim_in)
-    
-    def forward(self, x):
-        s = self.bnswish1(x)
-        s = self.lift(s)
-        s = self.bnswish2(s)
-        s = self.down(s)
-
-        return s + self.skip(x)
-
-
 # sampler
 class sampler(nn.Module): # create by adding,
     def __init__(self, dim):
@@ -230,7 +211,7 @@ class resnet50(nn.Module):
 
         return x
 
-class finger_embeding_model(nn.Module):
+class finger_nvae_embeding_model_v2(nn.Module):
     def __init__(self, args, resnet_file = None, nvae_file = None, init_feature_dims = 128, device = torch.device('cpu')):
         super().__init__()
         self.device = device
@@ -238,9 +219,11 @@ class finger_embeding_model(nn.Module):
         self.args = args
         self.resnet = resnet50(init_feature_dims)
         self.input_length = 20
+        self.mlp_nvae = NVAE_mlp(args, self.input_length) # input length = 2, latent dims = 8, hidden_dims = 8 ,num of heads = 4, device
         if resnet_file is not None:
             self.resnet.load_state_dict(torch.load(resnet_file)) # load pretrained resnet50, only contains the model state_dict
-        
+        if nvae_file is not None:
+            self.mlp_nvae.load_state_dict(torch.load(nvae_file, map_location='cpu')['state_dict']) # load pretrained gat_vae, only contains the model state_dict
         # layers for positional embedding, not embedding, direct add into the feature
         # pos_dim_list = [2, 8, 16, init_feature_dims]
         # self.pos_embedding = self.make_pos_embedding(pos_dim_list)
@@ -255,33 +238,14 @@ class finger_embeding_model(nn.Module):
         # preprocess the feature_encoder compress to the 20 latent dims
         self.preprocess = self.init_process(init_feature_dims * 5,self.input_length, args.num_per_group)
         # add one cellenc to process
-        self.enc = self.process(self.input_length, args.num_per_group)
-        self.postprocess = nn.ModuleList()
-        for _ in range(3):
-            self.postprocess.append(Celldec(self.input_length))
+        # self.enc = self.process(self.input_length, args.num_per_group)
 
-        self.final_pred = nn.Sequential(nn.ELU(), nn.Linear(self.input_length, self.input_length))
-
-
-        # init
-        if resnet_file is not None:
-            dicts = torch.load(resnet_file)
-            postprocess_dict = {}
-            final_pred_dict = {}
-            for k ,v in dicts.items():
-                if 'postprocess' in k:
-                    postprocess_dict[k] = v
-                if 'final_pred' in k:
-                    final_pred_dict[k] = v
-            self.postprocess.load_state_dict(postprocess_dict)
-            self.final_pred.load_state_dict(final_pred_dict)
-
-        # self.dim_sets = self.mlp_nvae.set_dims(self.input_length, args.latent_dims, 2)
-        # self.encf_samplers = []
-        # self.enc_cells_tow = self.mlp_nvae.init_enc_tow(self.dim_sets, args.num_per_group, self.encf_samplers)
-        # self.encf_samplers.reverse()
-        # self.encf_samplers = nn.ModuleList(self.encf_samplers)
-        # self.enc0 = nn.Sequential(nn.ELU(), nn.Linear(args.latent_dims, args.latent_dims), nn.ELU())
+        self.dim_sets = self.mlp_nvae.set_dims(self.input_length, args.latent_dims, 2)
+        self.encf_samplers = []
+        self.enc_cells_tow = self.mlp_nvae.init_enc_tow(self.dim_sets, args.num_per_group, self.encf_samplers)
+        self.encf_samplers.reverse()
+        self.encf_samplers = nn.ModuleList(self.encf_samplers)
+        self.enc0 = nn.Sequential(nn.ELU(), nn.Linear(args.latent_dims, args.latent_dims), nn.ELU())
         
     def init_process(self, input_dims, output_dims, num_groups):
         preprocess_term = nn.ModuleList()
@@ -323,25 +287,83 @@ class finger_embeding_model(nn.Module):
         for cell in self.preprocess:
             so = cell(so)
 
-        for cell in self.enc:
-            so = cell(so)
+        # for cell in self.enc:
+        #     so = cell(so)
 
-        for cell in self.postprocess:
+        # process the orig motion data
+        motions = motions.reshape(-1,20)
+        m_rec, _, kl_v_r, all_rq, _, mapping_feature = self.mlp_nvae(motions)
+
+        # feature dist
+        # feature_loss = torch.mean(torch.norm((so - mapping_feature), p = 2, dim=-1))
+        
+        combiner_cells_enc = []
+        combiner_cells_s = []
+        for cell in self.enc_cells_tow:
+            if cell.ctype == 'enc_combiner':
+                combiner_cells_enc.append(cell)
+                combiner_cells_s.append(so)
+            else:
+                so = cell(so)
+        
+        combiner_cells_enc.reverse()
+        combiner_cells_s.reverse()
+        idx_dec = 0
+        ftr = self.enc0(so)
+        mu_q, log_sig_q = self.encf_samplers[idx_dec](ftr)
+        dist = Normal(mu_q, log_sig_q)
+        z, _ = dist.sample()
+        log_q_conv = dist.log_p(z)
+        all_q = [dist]
+        all_log_q = [log_q_conv]
+
+        so = 0
+        dist = Normal(mu = torch.zeros_like(z), log_sigma=torch.zeros_like(z))
+        log_p_conv = dist.log_p(z)
+        all_p = [dist]
+        all_log_p = [log_p_conv]
+
+        batch_size = z.size(0)
+        so = self.mlp_nvae.h0.repeat(batch_size,1)
+        for cell in self.mlp_nvae.dec_tow_cell:
+            if cell.ctype == 'dec_combiner':
+                if idx_dec > 0:
+                    mu_p, log_sig_p = self.mlp_nvae.dec_samplers[idx_dec -1](so)
+                    ftr = combiner_cells_enc[idx_dec - 1](combiner_cells_s[idx_dec - 1], so)
+                    mu_q, log_sig_q = self.encf_samplers[idx_dec](ftr)
+                    dist = Normal(mu_p + mu_q, log_sig_p + log_sig_q)
+                    z, _ = dist.sample()
+                    log_q_conv = dist.log_p(z)
+                    
+                    all_log_q.append(log_q_conv)
+                    all_q.append(dist)
+
+                    dist = Normal(mu_p, log_sig_p)
+                    log_p_conv = dist.log_p(z)
+                    all_p.append(dist)
+                    all_log_p.append(dist)
+                
+                so = cell(so,z)
+                idx_dec += 1
+            else:
+                so = cell(so)
+
+        for cell in self.mlp_nvae.postprocess:
             so = cell(so)
         
-        final_preds = self.final_pred(so)
+        final_preds = self.mlp_nvae.final_pred(so)
         final_preds = final_preds * np.pi
 
         # compute the loss between the finger and nvae of q
-        # kl_all_vf = []
-        # for fq, nq in zip(all_q, all_rq):
-        #     kl_per_var = fq.kl(nq) # basically copy the routine of AE part
-        #     kl_all_vf.append(torch.mean(kl_per_var, dim=-1))
+        kl_all_vf = []
+        for fq, nq in zip(all_q, all_rq):
+            kl_per_var = fq.kl(nq) # basically copy the routine of AE part
+            kl_all_vf.append(torch.mean(kl_per_var, dim=-1))
 
-        # kl_all_vf = torch.stack(kl_all_vf, dim=1)
-        # kl_v_f = torch.mean(kl_all_vf)
+        kl_all_vf = torch.stack(kl_all_vf, dim=1)
+        kl_v_f = torch.mean(kl_all_vf)
 
-        return final_preds
+        return final_preds, m_rec, kl_v_f
 
 
 if __name__ == '__main__': 

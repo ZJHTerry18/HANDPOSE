@@ -1,5 +1,6 @@
 # CUDA_VISIBLE_DEVICES=5,6 python train_2.py --num_process_per_node 2 --save output317_pvae --port 10002 --latent_dims 5 --model PVAE
 # CUDA_VISIBLE_DEVICES=5 python train_hi_mlp.py --num_process_per_node 1 --save output_hi_vae_normal --port 10002 --latent_dims 8 --batch_size 100 --learning_rate 1e-2 --epochs 1000
 # CUDA_VISIBLE_DEVICES=5,6 python train_gnn.py --num_process_per_node 2 --save output_cord_0407_beta --port 10002 --latent_dims 8 --batch_size 1000 --learning_rate 1e-2
-# CUDA_VISIBLE_DEVICES=5,6,7 python train_finger.py --num_process_per_node 3 --save output_fingernet_at --port 10002 --latent_dims 8 --batch_size 50 --learning_rate 1e-3 --epochs 500
-CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python train_nvae_mlp.py --num_process_per_node 6 --save output_nvae_vae --port 10002 --latent_dims 4 --batch_size 100 --learning_rate 1e-2 --epochs 1000
+CUDA_VISIBLE_DEVICES=0,1,3,5,6,7 python train_finger.py --num_process_per_node 1 --save output_fingernet_fe_2 --port 10003 --latent_dims 4 --batch_size 32 --learning_rate 1e-3 --epochs 1500 --cont_training
+# CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python train_nvae_mlp.py --num_process_per_node 6 --save output_nvae_vae --port 10002 --latent_dims 4 --batch_size 100 --learning_rate 1e-2 --epochs 1000 
+# CUDA_VISIBLE_DEVICES=0,1,3,5,6,7 python train_finger2.py --num_process_per_node 6 --save output_fingernet_wo_vae_v2 --port 10003 --latent_dims 4 --batch_size 32 --learning_rate 1e-3 --epochs 1000

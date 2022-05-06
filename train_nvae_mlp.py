@@ -18,6 +18,7 @@ from hand_model_vis import vis
 from transfer_cordinate import angle2cord
 import warnings
 warnings.filterwarnings("ignore")
+import pickle
 
 def init_processes(rank, size, fn, args):
     """ Initialize the distributed environment. """
@@ -105,9 +106,10 @@ def main(args):
     # loading checkpoint or not 
     checkpoint_file = os.path.join(args.save, 'checkpoint.pt')
     best_file = os.path.join(args.save, 'best_model.pt')
+    other_file = 'output_fingernet_fe_2/best_model.pt'
     if args.cont_training:
         logging.info('loading the model.')
-        checkpoint = torch.load(checkpoint_file, map_location='cpu')
+        checkpoint = torch.load(best_file, map_location='cpu')
         init_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
         model = model.cuda()
@@ -122,14 +124,17 @@ def main(args):
     VPP = args.batch_size / len(train_dataset)
     beta_collects = frange_cycle_linear(args.epochs, stop= VPP, n_cycle=1, ratio=0.7) # set the cyclic rounds
     if args.sample:
-        number_s = 100
+        number_s = 30000
         var = 1
-        get_samples = sample_vis(model,best_file,number_s, var) # best or checkpoint
+        get_samples = sample_vis(model,other_file,best_file,number_s, var) # best or checkpoint
         get_samples = get_samples.cpu().numpy()
         get_samples = get_samples.reshape(-1,5,4)
-        # import pdb;pdb.set_trace()
-        vis(get_samples, 'vis_nvae_73_100/')
+        file_name = 'nvae_afinger_samples.pkl'
+        with open(file_name, 'wb') as f:
+            pickle.dump(get_samples, f)
+        # vis(get_samples, 'vis_fe/')
     else:
+        min_loss = torch.tensor(np.inf).to(device)
         for epoch in range(init_epoch, args.epochs): # start training
             # update lrs.
             if args.distributed:
@@ -148,7 +153,6 @@ def main(args):
             # prepare the eval
             model.eval()
             eval_freq = 15
-            min_loss = torch.tensor(np.inf).to(device)
             if epoch % eval_freq == 0 or epoch == (args.epochs - 1):
                 torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                                 'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
@@ -156,6 +160,7 @@ def main(args):
                                 'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
                 output_re_loss = test(valid_queue, model, args, logging)
                 if output_re_loss < min_loss:
+                    min_loss = output_re_loss.copy()
                     torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                                 'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
                                 'args': args,'scheduler': cnn_scheduler.state_dict(),
@@ -163,11 +168,27 @@ def main(args):
             writer.close()
 
 
-def sample_vis(model, checkpoint_file, num=10, t=1):
+def sample_vis(model, checkpoint_file, best_file, num=10, t=1):
     checkpoint = torch.load(checkpoint_file, map_location='cpu')
-    model.load_state_dict(checkpoint['state_dict'])
-    # for paras in model.decoder.parameters():
-    #     print(paras)
+    org = torch.load(best_file, map_location='cpu')
+    org_state = org['state_dict']
+    temp = checkpoint['state_dict']
+    #select the mlp parameter
+    new_state_dict = {}
+    # flag = 1
+    # count = 0
+    # name_list = []
+    for k, v in temp.items():
+        if 'mlp_nvae.' in k:
+            new_state_dict[k.replace('mlp_nvae.','')] = v
+            # flag = torch.prod(v == org_state[k.replace('mlp_nvae.','')])
+            # if flag == 0:
+            #     name_list.append(k.replace('mlp_nvae.',''))
+            #     count += 1
+    # model.load_state_dict(checkpoint['state_dict'])
+    # print(f'mission complete')
+    # import pdb;pdb.set_trace()
+    model.load_state_dict(new_state_dict)
     model = model.cuda()
     model.eval()
     with torch.no_grad():
@@ -201,7 +222,7 @@ def train(train_queue, model, beta, cnn_optimizer, global_step, grad_scalar, war
         with autocast():
             org_angle = ang.clone()
             org_angle = org_angle.reshape(-1,20)
-            rec, kl_all, kl_v = model(org_angle)
+            rec, kl_all, kl_v,_,_ = model(org_angle)
             rec = rec.reshape(-1,5,4)
             org_angle = org_angle.reshape(-1,5,4)
             rec_cor = angle2cord(rec.to(torch.float), device = rec.device)
@@ -245,7 +266,7 @@ def test(valid_queue, model, args, logging):
         with torch.no_grad():
             org_angle = ang.clone()
             org_angle = org_angle.reshape(-1,20)
-            rec, kl_all, kl_v = model(org_angle)
+            rec, kl_all, kl_v,_,_ = model(org_angle)
             rec = rec.reshape(-1,5,4)
             org_angle = org_angle.reshape(-1,5,4)
             rec_cor = angle2cord(rec.to(torch.float), device = rec.device)

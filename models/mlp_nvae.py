@@ -132,8 +132,8 @@ class NVAE_mlp(nn.Module):
         self.device = device
         self.latent_dims = args.latent_dims
         # give a soft excess from input length to the latent dims 
-        gap = 2       
-        self.dims_set = self.set_dims(input_length, self.latent_dims, gap)
+        self.gap = 2       
+        self.dims_set = self.set_dims(input_length, self.latent_dims, self.gap)
         self.num_per_group = args.num_per_group
         self.preprocess = nn.ModuleList()
         for _ in range(3): # 
@@ -217,6 +217,9 @@ class NVAE_mlp(nn.Module):
         for cell in self.preprocess:
             s = cell(s)
 
+        # init feauture
+        # init_feature = s.detach().clone() 
+
         # run the main encoder tower
         combiner_cells_enc = []
         combiner_cells_s = []
@@ -271,9 +274,12 @@ class NVAE_mlp(nn.Module):
             else:
                 s = cell(s)
 
+        # this is the final feature port
+        mapping_feature = s.detach().clone()
+
         for cell in self.postprocess:
-            s = cell(s)
-        
+            s = cell(s)        
+
         final_preds = self.final_pred(s)
         final_preds = final_preds * np.pi
         # compute kl
@@ -288,7 +294,7 @@ class NVAE_mlp(nn.Module):
         kl_all = torch.stack(kl_all, dim=1)
         kl_v = torch.mean(kl_all)
 
-        return final_preds, kl_all, kl_v
+        return final_preds, kl_all, kl_v, all_q, all_p, mapping_feature # add two output for prior comparation 
 
     def batchnorm_loss(self):
         loss = 0

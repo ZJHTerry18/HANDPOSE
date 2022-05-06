@@ -265,8 +265,12 @@ def average_gradients(params, is_distributed):
         size = float(dist.get_world_size())
         for param in params:
             if param.requires_grad:
-                dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-                param.grad.data /= size
+                try:
+                    dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
+                    param.grad.data /= size
+                except:
+                    import pdb;pdb.set_trace()
+                
 
 
 def average_params(params, is_distributed):

@@ -6,10 +6,10 @@ import re
 from tqdm import tqdm
 import glob
 
-Folder = '/Extra/panzhiyu/finger/datasetfp_v0.4/leap/p0/left/'
+Folder = '/Extra/panzhiyu/finger/dataset_fptype_v0.3/leap/p1/left/'
 files = os.listdir(Folder)
 files.sort(key = lambda x: int(x.strip('.txt').replace('_','')))
-SaveF = '/Extra/panzhiyu/finger/datasetfp_v0.4/leap/p0/left_pickle/'
+SaveF = '/Extra/panzhiyu/finger/dataset_fptype_v0.3/leap/p1/left_pickle/'
 namespace = ['t','i','m','r','p']
 
 for f in tqdm(files):
@@ -43,7 +43,7 @@ for f in tqdm(files):
                 saving_data[namespace[finger_idx]] = finger_info
                 del finger_info
     # if saving_data['curl'] == 1:
-    #     save_name = osp.join(SaveF_curl, f.replace('txt','pkl'))
+    #     save_name = osp.join SaveF_curl, f.replace('txt','pkl'))
     #     with open(save_name,'wb') as h:
     #         pickle.dump(saving_data,h)
     # else:
