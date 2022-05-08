@@ -1,3 +1,6 @@
 /dataset/*
 /results/*
 /demo/videos
+/demo/images
+/demo/output
+/demo/materials

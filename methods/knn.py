@@ -6,24 +6,36 @@ from tqdm import tqdm
 from loguru import logger
 import os.path as osp
 import math
+from easydict import EasyDict as edict
 from config import cfg
-from tool.handmodel import get_skeleton_from_data, transform_to_global
+from tool.handmodel import get_skeleton_from_data, transform_to_global, xzy_to_xyz
 from tool.visualize import vis, vis_fp
 from tool.dataload import load_dataset
 from loss import eloss_local, eloss_global, eloss_tip, loss_stat
 
-
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
-DATASET_PATH = '../dataset/train_new/txts'
-DATA_PATH = '../dataset/test_type_new'
+DATASET_PATH = '../dataset/train_type_new/txts'
+DATA_PATH = '../dataset/test_type_new2/txts'
 K = 20
 METRIC = 'aL1'
 LOSS_TYPE = 1 # 0: EPE 1:EPE_v
 SAVE_FIGURE = True
-WRITE_RESULT = False
-# SAVE_DIR = osp.join('..', 'results', '_'.join(['gbl', 'typeknn_new', str(K), METRIC]))
-SAVE_DIR = '../dataset/train_new/imgs'
+WRITE_RESULT = True
+SAVE_DIR = osp.join('..', 'results', '_'.join(['gbl', 'typeknn_new', str(K), METRIC]))
+# SAVE_DIR = '../dataset/train_new/imgs'
+
+knncfg = edict()
+knncfg.HANDPOSE_DICT = HANDPOSE_DICT
+knncfg.NUM_POSE = NUM_POSE
+knncfg.DATASET_PATH = DATASET_PATH
+knncfg.DATA_PATH = DATA_PATH
+knncfg.K = K
+knncfg.METRIC = METRIC
+knncfg.LOSS_TYPE = LOSS_TYPE
+knncfg.SAVE_FIGURE = SAVE_FIGURE
+knncfg.WRITE_RESULT = WRITE_RESULT
+knncfg.SAVE_DIR = SAVE_DIR
 
 def softmax(x):
     x = x - np.max(x)
@@ -31,7 +43,7 @@ def softmax(x):
     return f_x
 
 def kNNsearch(x0, dataset, touch_ind, k = 20, metric = 'aL1'):
-    w_a = 1.0
+    w_a = 0.5
     w_p = 0.33
     w_y = 0.33
 
@@ -79,7 +91,15 @@ def kNNsearch(x0, dataset, touch_ind, k = 20, metric = 'aL1'):
     # avg_best_z = np.sum(np.array([best_z[i] * w_arr[i] for i in range(len(w_arr))]), axis=0)
     # print(res)
     avg_best_z = np.average(np.array(best_z), axis=0)
-    avg_best_dist = np.linalg.norm(x[a_ind][touch_ind] - avg_best_z[a_ind][touch_ind])
+    # avg_best_dist = np.linalg.norm(x[a_ind][touch_ind] - avg_best_z[a_ind][touch_ind])
+    a_dist = 3.0 * (
+        w_p * np.sum(np.abs(x[a_ind][touch_ind][:,0] - avg_best_z[a_ind][touch_ind][:,0])) + 
+        w_y * np.sum(np.abs(x[a_ind][touch_ind][:,1] - avg_best_z[a_ind][touch_ind][:,1])) + 
+        (1.0 - w_p - w_y) * np.sum(np.abs(x[a_ind][touch_ind][:,2] - avg_best_z[a_ind][touch_ind][:,2]))
+    )
+    p_dist = sum([np.sqrt((x[p_ind[i],0] - avg_best_z[p_ind[i],0]) ** 2 + (x[p_ind[i],2] - avg_best_z[p_ind[i],2]) ** 2) for i in touch_ind])
+    avg_best_dist = w_a * a_dist  + (1 - w_a) * p_dist
+
     if avg_best_dist < np.min(min_dist):
         res = avg_best_z
     else:
@@ -216,10 +236,12 @@ if __name__ == "__main__":
         e_pred_local, e_pred_global = get_skeleton_from_data(pred)
         e_pred2_local, e_pred2_global = get_skeleton_from_data(pred_def)
         e_pred_trans = transform_to_global(test_data, pred, e_test_global, e_pred_global)
-        e_pred2_trans = transform_to_global(test_data, pred, e_test_global, e_pred2_global)
+        # e_pred2_trans = transform_to_global(test_data, pred, e_test_global, e_pred2_global)
+        e_test_global = xzy_to_xyz(e_test_global)
+        e_pred_trans = xzy_to_xyz(e_pred_trans)
         # lossval = eloss_local(e_test_local, e_pred2_local, touch_ind, all=(LOSS_TYPE == 0))
-        # lossval = eloss_global(e_test_global, e_pred2_trans, touch_ind, all=(LOSS_TYPE == 0))
-        lossval = eloss_tip(e_test_global, e_pred2_trans, touch_ind, all=(LOSS_TYPE == 0))
+        lossval = eloss_global(e_test_global, e_pred_trans, touch_ind, all=(LOSS_TYPE == 0))
+        # lossval = eloss_tip(e_test_global, e_pred_trans, touch_ind, all=(LOSS_TYPE == 0))
         losses[hand_id * NUM_POSE + pose_id].append(lossval)
         all_losses.append(lossval)
         angle_lossval = angle_loss(test_data, pred_def, touch_ind)
@@ -228,8 +250,8 @@ if __name__ == "__main__":
 
         if SAVE_FIGURE:
             save_figname = '_'.join([str(pose_id).zfill(2), str(hand_id), str(seq).zfill(3)]) + '.jpg'
-            vis(test_data, e_test_local, e_test_global, e_test_local, e_test_global, 
-                None, None, show=False, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
+            vis(test_data, e_test_local, e_test_global, e_pred_local, e_pred_trans, 
+                None, None, show=True, save=True, save_dir=SAVE_DIR, save_fig=save_figname)
             # save_fpfigname = save_figname[:-4] + 'fp.jpg'
             # vis_fp(test_data, pred, show=False, save=False, save_dir=SAVE_DIR, save_fig=save_fpfigname)
     

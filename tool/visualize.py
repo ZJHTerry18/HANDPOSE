@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import os
 import os.path as osp
 from config import cfg
+from tool.handmodel import xzy_to_xyz
 
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 NUM_POSE = cfg.NUM_POSE
@@ -69,6 +70,9 @@ def vis(data, e_local_test, e_global_test, e_local_res, e_global_res, e_local_re
     pose_id = int(data[0][0])
     seq = int(data[0][2])
 
+    # e_global_test = xzy_to_xyz(e_global_test)
+    # e_global_res = xzy_to_xyz(e_global_res)
+
     xp_local_test = e_local_test.T[0].T
     yp_local_test = e_local_test.T[1].T
     zp_local_test = e_local_test.T[2].T
@@ -92,7 +96,7 @@ def vis(data, e_local_test, e_global_test, e_local_res, e_global_res, e_local_re
 
     touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
     # touch_ind = []
-	
+    x_global_avg = np.average(np.concatenate((xp_global_res, xp_global_test), axis=0))
     fig = plt.figure(figsize=plt.figaspect(0.5))
     axtest1 = fig.add_subplot(1,2,1, projection='3d')
     axtest2 = fig.add_subplot(1,2,2, projection='3d')
@@ -101,19 +105,26 @@ def vis(data, e_local_test, e_global_test, e_local_res, e_global_res, e_local_re
     axtest1.set_xlim3d([-10,10])
     axtest1.set_ylim3d([0,20])
     axtest1.set_zlim3d([-10,10])
-    axtest2.set_xlim3d([-10,10])
-    axtest2.set_ylim3d([10,30])
-    axtest2.set_zlim3d([-10,10])
-    axtest2.set_xlim3d([-10,10])
-    axtest1.set_xticklabels([])
-    axtest1.set_yticklabels([])
-    axtest1.set_zticklabels([])
-    axtest2.set_xticklabels([])
-    axtest2.set_yticklabels([])
-    axtest2.set_zticklabels([])
+    axtest2.set_xlim3d([x_global_avg-10,x_global_avg+10])
+    axtest2.set_ylim3d([yp_global_res[0]-2,yp_global_res[0]+18])
+    axtest2.set_zlim3d([-5,10])
+    # axtest1.set_xticklabels([])
+    # axtest1.set_yticklabels([])
+    # axtest1.set_zticklabels([])
+    # axtest2.set_xticklabels([])
+    # axtest2.set_yticklabels([])
+    # axtest2.set_zticklabels([])
+    axtest2.set_box_aspect((1,1,1))
     axtest1.view_init(elev=45, azim=45)
-    axtest2.view_init(elev=-45, azim=-90)
+    axtest2.view_init(elev=30, azim=75)
 	
+    # plot surface
+    sfX = np.arange(x_global_avg-10,x_global_avg+10, 0.5)
+    sfY = np.arange(yp_global_res[0]-2,yp_global_res[0]+18, 0.5)
+    sfX, sfY = np.meshgrid(sfX, sfY)
+    sfZ = np.zeros_like(sfX)
+    # axtest2.plot_surface(sfX, sfY, sfZ, cmap="Blues")
+
 	# plot connections
     plot_kp(axtest1,xp_local_test, yp_local_test, zp_local_test, touch_ind)
     plot_kp(axtest2,xp_global_test, yp_global_test, zp_global_test, touch_ind)
@@ -122,6 +133,9 @@ def vis(data, e_local_test, e_global_test, e_local_res, e_global_res, e_local_re
     if (e_local_res2 is not None) and (e_global_res2 is not None):
         plot_kp(axtest1,xp_local_res2, yp_local_res2, zp_local_res2, touch_ind, linestyle=':', finger_color='green')
         plot_kp(axtest2,xp_global_res2, yp_global_res2, zp_global_res2, touch_ind, linestyle=':', finger_color='green')
+
+    
+
     plt.axis('on')
     if show: 
         plt.show()
@@ -168,6 +182,36 @@ def vis_fp(data, pred, show = False, save = False, save_dir = None, save_fig = N
 
     plt.axis('on')
     if show: 
+        plt.show()
+    if save:
+        plt.savefig(osp.join(save_dir, save_fig))
+    plt.close()
+
+
+def vis_pred(data, e_pred_local, e_pred_global, show = True, save = False, save_dir = None, save_fig = None):
+    hand_id = int(data[0][1])
+    pose_id = int(data[0][0])
+    seq = int(data[0][2])
+
+    xp_global = e_pred_global.T[0].T
+    yp_global = e_pred_global.T[1].T
+    zp_global = e_pred_global.T[2].T
+    x_global_avg = np.average(xp_global)
+
+    touch_ind = [i for i, x in enumerate(HANDPOSE_DICT[pose_id].split()) if x == '1']
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(1,1,1, projection='3d')
+    ax1.set_xlim3d([x_global_avg-10, x_global_avg+10])
+    ax1.set_ylim3d([yp_global[0]-2,yp_global[0]+18])
+    ax1.set_zlim3d([-5,10])
+    ax1.set_xticklabels([])
+    ax1.set_yticklabels([])
+    ax1.set_zticklabels([])
+    ax1.view_init(elev=30, azim=75)
+
+    plot_kp(ax1,xp_global, yp_global, zp_global, touch_ind)
+    if show:
         plt.show()
     if save:
         plt.savefig(osp.join(save_dir, save_fig))
