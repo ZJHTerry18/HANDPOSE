@@ -31,6 +31,61 @@ def rot_axis(v, k, theta):
 	v_rot = v * np.cos(theta) + k * (np.dot(k,v)) * (1 - np.cos(theta)) + np.cross(k,v) * np.sin(theta)
 	return v_rot
 
+def inverse_kinematics(e, direction, normal = None, handtype = 'left'):
+    '''
+    input: 
+        e: 20*3 np.array, [x,y,z] of each joint
+        direction: vector, the direction hand pointing at
+        normal: vector, normal vector of palm
+        handtype: 'left' or 'right'
+
+    return:
+        phi: 5-d np.array
+        theta: 5*3 np.array
+    '''
+    import numpy.linalg as nl
+    def angle(v1, v2):
+        a = nl.norm(np.cross(v1,v2)) / (nl.norm(v1) * nl.norm(v2))
+        return np.arcsin(a) * 180 / np.pi
+
+    phi = np.zeros(5)
+    theta = np.zeros((5,3))
+    finger_joint_dict = {0:[0,1,6,7], 1:[2,8,9,10], 2:[3,11,12,13], 3:[4,14,15,16], 4:[5,17,18,19]}
+    if normal == None:
+        normal = np.cross((e[3] - e[0], e[2] - e[0])) if handtype == 'left' else -np.cross((e[3] - e[0], e[2] - e[0]))
+    normal = normal / nl.norm(normal)
+    direction = direction / nl.norm(direction)
+    horiz = np.cross(direction, normal)
+
+    for id in range(5):
+        jlist = finger_joint_dict[id]
+
+        e0 = e[jlist[0]] - e[0] if id > 0 else direction
+        e1 = e[jlist[1]] - e[jlist[0]]
+        e2 = e[jlist[2]] - e[jlist[1]]
+        e3 = e[jlist[3]] - e[jlist[2]]
+
+        v1 = np.cross(np.cross(normal, e1), normal)
+        v1 = v1 / nl.norm(v1)
+
+        phi[id] = angle(e0, v1)    
+        if np.dot(horiz, e0) < np.dot(horiz, v1): 
+            phi[id] = -phi[id]
+        if handtype == 'right':
+            phi[id] = -phi[id]
+        theta[id][0] = angle(v1, e1)
+        if np.dot(e1, normal) < 0: 
+            theta[id][0] = -theta[id][0]
+        theta[id][1] = angle(e1, e2)
+        if np.dot(e1, normal) > np.dot(e2, normal):
+            theta[id][1] = -theta[id][1]
+        theta[id][2] = angle(e2, e3)
+        if np.dot(e2, normal) > np.dot(e3, normal):
+            theta[id][2] = -theta[id][2]
+    
+
+    return phi, theta
+
 def get_skeleton_from_data(data):
 	# default setting
 	phi_I = 110 * np.pi / 180
@@ -353,3 +408,35 @@ def transform_to_global(gt, pred, e_gt, e_pred):
 
 	e_pred_trans = (np.dot(R, e_pred.T) + t).T
 	return e_pred_trans
+
+
+def xzy_to_xyz(e):
+	e_x = e[:,0]
+	e_y = e[:,1]
+	e_z = e[:,2]
+	e_new = np.zeros_like(e)
+	e_new[:,0] = -e_x
+	e_new[:,1] = -e_z
+	e_new[:,2] = -e_y
+	return e_new
+
+def rot_to_mat(r, theta):
+    I = np.eye(3)
+    Sn = np.array([
+        [0., -r[2], r[1]],
+        [r[2], 0., -r[0]],
+        [-r[1], r[0], 0.]
+    ])
+
+    r_T = r.reshape(3,1)
+    r = r.reshape(1,3)
+    R = I * np.cos(theta) + np.dot(r.T, r) * (1 - np.cos(theta)) + Sn * np.sin(theta)
+
+    return R
+
+def mat_to_rot(R):
+    theta = np.arccos((R.trace() - 1.) * 0.5)
+    Sn = (R - R.T) * 0.5 / np.sin(theta)
+    r = np.array([-Sn[1][2], Sn[0][2], -Sn[0][1]])
+
+    return r, theta
