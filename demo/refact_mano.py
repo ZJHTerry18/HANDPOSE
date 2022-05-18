@@ -43,8 +43,8 @@ IMAGE_PRE_HEIGHT = 480
 IMAGE_PRE_SIZE = IMAGE_PRE_WIDTH * IMAGE_PRE_HEIGHT
 USE_REG_ONLY = True
 
-IMG_PATH = r'D:\Workspace\HANDPOSE\demo\output\test2'
-PKL_PATH = r'D:\Workspace\HANDPOSE\demo\output\test2\preddata.pkl'
+IMG_PATH = r'D:\Workspace\HANDPOSE\demo\images\pd2'
+PKL_PATH = r'D:\Workspace\HANDPOSE\demo\output\pd\pd2\preddata.pkl'
 
 HANDPOSE_DICT = cfg.HANDPOSE_DICT
 joint_dict = {12:1, 13:2, 14:3, 0:6, 1:7, 2:8, 3:11, 4:12, 5:13, 9:16, 10:17, 11:18, 6:21, 7:22, 8:23}
@@ -57,6 +57,8 @@ class dataset():
         with open(PKL_PATH, 'rb') as f:
             angledata = pickle.load(f)
         imgfiles = sorted(glob.glob(os.path.join(IMG_PATH, '*.jpg')))
+        # imgfiles = imgfiles[:]
+        # angledata = angledata[2000:]
         for i, dat in enumerate(angledata):
             img = np.array(Image.open(imgfiles[i])).swapaxes(0,1)
             predict = {}
@@ -77,7 +79,7 @@ class dataset():
 
             self.img_seqs.append(img)
             self.predict_seqs.append(predict)
-
+        self.hand = 'left' if hand_id == 0 else 'right'
     
     def getitem(self):
         img = self.img_seqs[self.curseq]
@@ -102,27 +104,41 @@ glv.opts["azimuth"] = -20
 glv.setCameraPosition(distance=40)
 
 # mesh data initialize
-lh_model = mano.load(model_path=r'D:\Workspace\MANO\models\mano\MANO_LEFT.pkl',
-                     is_right= True,
-                     num_pca_comps=45,
-                     batch_size=1,
-                     flat_hand_mean=True)
-ini_betas = torch.rand(1, 10)*.1
-angles = torch.zeros((15,3))
-ini_pose = angles.view(1,-1)
-ini_global_orient_r = torch.tensor([[0.5773, 0.5773, 0.5773]])
-ini_global_orient_th = 2.094
-ini_global_orient = ini_global_orient_r * ini_global_orient_th
-ini_transl        = torch.tensor([[0.0959,-0.0064,-0.0061]])
+if D.hand == 'left':
+    h_model = mano.load(model_path=r'D:\Workspace\MANO\models\mano\MANO_LEFT.pkl',
+                        is_right= True,
+                        num_pca_comps=45,
+                        batch_size=1,
+                        flat_hand_mean=True)
+    ini_betas = torch.rand(1, 10)*.1
+    angles = torch.zeros((15,3))
+    ini_pose = angles.view(1,-1)
+    ini_global_orient_r = torch.tensor([[0.5773, 0.5773, 0.5773]])
+    ini_global_orient_th = 2.094
+    ini_global_orient = ini_global_orient_r * ini_global_orient_th
+    ini_transl        = torch.tensor([[0.0959,-0.0064,-0.0061]])
+else:
+    h_model = mano.load(model_path=r'D:\Workspace\MANO\models\mano\MANO_RIGHT.pkl',
+                        is_right= True,
+                        num_pca_comps=45,
+                        batch_size=1,
+                        flat_hand_mean=True)
+    ini_betas = torch.rand(1, 10)*.1
+    angles = torch.zeros((15,3))
+    ini_pose = angles.view(1,-1)
+    ini_global_orient_r = torch.tensor([[0.5773, -0.5773, -0.5773]])
+    ini_global_orient_th = 2.094
+    ini_global_orient = ini_global_orient_r * ini_global_orient_th
+    ini_transl        = torch.tensor([[-0.0956,-0.0064,-0.0062]])
 
-output = lh_model(betas=ini_betas,
+output = h_model(betas=ini_betas,
                   global_orient=ini_global_orient,
                   hand_pose=ini_pose,
                   transl=ini_transl,
                   return_verts=True,
                   return_tips = True)
-h_meshes = lh_model.hand_meshes(output)
-j_meshes = lh_model.joint_meshes(output)
+h_meshes = h_model.hand_meshes(output)
+j_meshes = h_model.joint_meshes(output)
 hj_meshes = Mesh.concatenate_meshes([h_meshes[0], j_meshes[0]])
 
 vertices = h_meshes[0].vertices * 100
@@ -185,18 +201,17 @@ imv.sizeHint = glv.sizeHint = lambda: pg.QtCore.QSize(100, 100)
 glv.setSizePolicy(imv.sizePolicy())
 
 def update_mano(pose, global_orient, transl):
-    print(pose)
     pose = torch.tensor(pose).view(1,-1).to(torch.float32)
     global_orient = torch.tensor(global_orient).unsqueeze(0).to(torch.float32)
     transl = transl.to(torch.float32)
-    output = lh_model(betas=ini_betas,
+    output = h_model(betas=ini_betas,
                   global_orient=global_orient,
                   hand_pose=pose,
                   transl=transl,
                   return_verts=True,
                   return_tips = True)
-    h_meshes = lh_model.hand_meshes(output)
-    j_meshes = lh_model.joint_meshes(output)
+    h_meshes = h_model.hand_meshes(output)
+    j_meshes = h_model.joint_meshes(output)
     hj_meshes = Mesh.concatenate_meshes([h_meshes[0], j_meshes[0]])
 
     vertices = h_meshes[0].vertices * 100
@@ -241,7 +256,7 @@ def update():
             shell.addItem("invalid data")
             shell.scrollToBottom()
             # print("invalid data")
-        QtCore.QTimer.singleShot(200, update)  # for schedule
+        QtCore.QTimer.singleShot(20, update)  # for schedule
 
 
 def control():

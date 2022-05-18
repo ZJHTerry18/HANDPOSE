@@ -8,12 +8,17 @@ from tqdm import tqdm
 from loguru import logger
 import cv2
 import pickle
+import argparse
 
 #local import
 from methods.knn import DATA_PATH, DATASET_PATH, HANDPOSE_DICT, kNNsearch, knncfg
 from tool.dataload import load_dataset
 from tool.handmodel import get_skeleton_from_data, transform_to_global, xzy_to_xyz, inverse_kinematics
 from tool.visualize import vis, vis_pred
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--id', type=str)
+args = parser.parse_args()
 
 # video configuration
 FRAME_PATH = 'videos/test1'
@@ -22,10 +27,10 @@ VIDEO_FPS = 30.0
 # handpose data configuration
 HANDPOSE_DICT = knncfg.HANDPOSE_DICT
 NUM_POSE = knncfg.NUM_POSE
-DATA_FPS = 8.0
-DATA_PATH = '../dataset/demo_type_p2/txts/test2'
+DATA_FPS = 7.5
+DATA_PATH = '../dataset/demo_type_test/pd/' + args.id
 DATASET_PATH = knncfg.DATASET_PATH
-SAVE_DIR = 'output/test2'
+SAVE_DIR = 'output/pd/' + args.id
 
 
 def pred_interpolate(pred_res, gap):
@@ -58,7 +63,7 @@ if __name__ == "__main__":
         searchset[hand_id * NUM_POSE + pose_id].append(dat)
     
     intp_gap = int(VIDEO_FPS / DATA_FPS)
-    pred_size = len(test_dataset) * intp_gap - 2
+    pred_size = len(test_dataset) * intp_gap - intp_gap + 1
     pred_res = [None] * pred_size
     logger.info('Predicting...')
     for i, test_data in tqdm(enumerate(test_dataset)):
@@ -90,7 +95,7 @@ if __name__ == "__main__":
         e_pred_local = res['local pose']
         e_pred_global = res['global pose']
 
-        vis_pred(pred_data, e_pred_local, e_pred_global, show=False, save=True, save_dir=SAVE_DIR, save_fig=figname)
+        # vis_pred(pred_data, e_pred_local, e_pred_global, show=False, save=True, save_dir=SAVE_DIR, save_fig=figname)
     
     with open(osp.join(SAVE_DIR, 'preddata.pkl'), 'wb') as f:
         pickle.dump(pred_res, f)
